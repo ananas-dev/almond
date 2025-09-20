@@ -2,6 +2,8 @@
 
 #include <SDL3/SDL_stdinc.h>
 
+#define DISTEPSILON 1e-6
+
 static vec3 unit_cube_vertices[8] = {
     { -0.5f, -0.5f, 0.5f }, //0
     { 0.5f, -0.5f, 0.5f }, //1
@@ -74,7 +76,6 @@ static bool is_inside_half_plane(Plane plane, vec3 x)
 
 void edge_plane_intersection(Plane plane, vec3 p, vec3 c, vec3 intersection)
 {
-    // Calculate intersection directly using plane equation
     vec3 ray_dir;
     glm_vec3_sub(c, p, ray_dir);
 
@@ -84,12 +85,12 @@ void edge_plane_intersection(Plane plane, vec3 p, vec3 c, vec3 intersection)
     float numerator = glm_vec3_dot(prev_to_anchor, plane.normal);
     float denominator = glm_vec3_dot(ray_dir, plane.normal);
 
-    if (fabsf(denominator) > 1e-6f) {  // Avoid division by near-zero
-        float t = numerator / denominator;  // Add this line!
+    if (fabsf(denominator) > DISTEPSILON) {
+        float t = numerator / denominator;
         glm_vec3_copy(p, intersection);
         glm_vec3_muladds(ray_dir, t, intersection);
     } else {
-        // Fallback for nearly parallel case
+        // Fallback
         glm_vec3_lerp(p, c, 0.5f, intersection);
     }
 }
@@ -106,20 +107,36 @@ int SDLCALL convex_polygon_compare(void* userdata, const void* a, const void* b)
     vec3* A = (vec3*)a;
     vec3* B = (vec3*)b;
 
-    vec3 vec_a, vec_b, cross;
+    vec3 vec_a, vec_b;
     glm_vec3_sub(*A, data->center, vec_a);
     glm_vec3_sub(*B, data->center, vec_b);
-    glm_vec3_cross(vec_a, vec_b, cross);
 
-    float dot = glm_vec3_dot(cross, data->normal);
+    // Project vectors onto the plane
+    float dot_a = glm_vec3_dot(vec_a, data->normal);
+    float dot_b = glm_vec3_dot(vec_b, data->normal);
 
-    if (dot > 0)
-        return -1;
-    if (dot < 0)
-        return 1;
+    vec3 proj_a, proj_b;
+    glm_vec3_copy(vec_a, proj_a);
+    glm_vec3_muladds(data->normal, -dot_a, proj_a);
 
-    // Collinear case
-    return (glm_vec3_norm2(vec_a) > glm_vec3_norm2(vec_b)) ? 1 : -1;
+    glm_vec3_copy(vec_b, proj_b);
+    glm_vec3_muladds(data->normal, -dot_b, proj_b);
+
+    vec3 cross;
+    glm_vec3_cross(proj_a, proj_b, cross);
+    float cross_normal = glm_vec3_dot(cross, data->normal);
+
+    if (cross_normal > 1e-6f) return -1;
+    if (cross_normal < -1e-6f) return 1;
+
+    // If cross product is ~0, vectors are collinear - sort by distance
+    float dist_a = glm_vec3_norm2(proj_a);
+    float dist_b = glm_vec3_norm2(proj_b);
+
+    if (dist_a < dist_b) return -1;
+    if (dist_a > dist_b) return 1;
+
+    return 0;
 }
 
 Mesh brush_to_mesh(Brush brush, Arena* arena)
@@ -150,7 +167,7 @@ Mesh brush_to_mesh(Brush brush, Arena* arena)
 
         polyhedra[1 - current_polyhedron].count = 0;
 
-        Polygon clipped_poly = {0};
+        Polygon clipped_poly = { 0 };
 
         for (size_t j = 0; j < polyhedra[current_polyhedron].count; j++) {
             Polygon* poly = &polyhedra[current_polyhedron].faces[j];
@@ -224,7 +241,7 @@ Mesh brush_to_mesh(Brush brush, Arena* arena)
 
             SDL_qsort_r(clipped_poly.vertices, clipped_poly.count, sizeof(vec3), convex_polygon_compare, &qsort_user_data);
 
-            Polygon *new_poly = push_polygon(&polyhedra[1 - current_polyhedron]);
+            Polygon* new_poly = push_polygon(&polyhedra[1 - current_polyhedron]);
             new_poly->count = clipped_poly.count;
 
             for (size_t j = 0; j < clipped_poly.count; j++) {
@@ -255,14 +272,13 @@ Mesh brush_to_mesh(Brush brush, Arena* arena)
 
         if (mesh.faces_count >= faces_upper_bound) {
             printf("ERROR: faces_count (%zu) >= faces_upper_bound (%d)\n",
-                   mesh.faces_count, faces_upper_bound);
+                mesh.faces_count, faces_upper_bound);
             printf("Polygon %zu has %zu vertices\n", i, poly->count);
             assert(false);
         }
 
         if (poly->count < 3)
             continue;
-            // assert(false);
 
         int first_vertex_index = find_or_insert_vertex(&mesh, poly->vertices[0]);
 
