@@ -32,4 +32,4 @@ typedef struct {
 } Brush;
 
 Plane plane_from_points(vec3 a, vec3 b, vec3 c);
-void brush_to_mesh(Brush brush, Arena* arena);
+Mesh brush_to_mesh(Brush brush, Arena* arena);
