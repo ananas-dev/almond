@@ -1,8 +1,6 @@
-//
-// Created by lucien on 9/21/25.
-//
+#pragma once
 
-#ifndef LOGGER_H
-#define LOGGER_H
-
-#endif //LOGGER_H
+void log_info(const char* fmt, ...);
+void log_warn(const char* fmt, ...);
+void log_err(const char* fmt, ...);
+void log_fatal(const char* fmt, ...);

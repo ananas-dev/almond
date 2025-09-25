@@ -1,18 +1,29 @@
 #include "geometry.h"
 
-#include <SDL3/SDL_stdinc.h>
+#include <cglm/cglm.h>
+#include <stdlib.h>
 
 #define DISTEPSILON 1e-6
 
+typedef struct {
+    vec3 vertices[32]; // Edges upper-bound
+    size_t count;
+} Polygon;
+
+typedef struct {
+    Polygon* faces;
+    size_t count;
+} Polyhedron;
+
 static vec3 unit_cube_vertices[8] = {
-    { -0.5f, -0.5f, 0.5f }, //0
-    { 0.5f, -0.5f, 0.5f }, //1
-    { -0.5f, 0.5f, 0.5f }, //2
-    { 0.5f, 0.5f, 0.5f }, //3
-    { -0.5f, -0.5f, -0.5f }, //4
-    { 0.5f, -0.5f, -0.5f }, //5
-    { -0.5f, 0.5f, -0.5f }, //6
-    { 0.5f, 0.5f, -0.5f } //7
+    { -0.5f, -0.5f, 0.5f }, // 0
+    { 0.5f, -0.5f, 0.5f }, // 1
+    { -0.5f, 0.5f, 0.5f }, // 2
+    { 0.5f, 0.5f, 0.5f }, // 3
+    { -0.5f, -0.5f, -0.5f }, // 4
+    { 0.5f, -0.5f, -0.5f }, // 5
+    { -0.5f, 0.5f, -0.5f }, // 6
+    { 0.5f, 0.5f, -0.5f } // 7
 };
 
 static ivec4 unit_cube_faces[6] = {
@@ -36,23 +47,30 @@ Polygon* push_polygon(Polyhedron* polyhedron)
 }
 
 // O(n)
-static int find_or_insert_vertex(Mesh* mesh, vec3 vertex)
+static int find_or_insert_vertex(MeshData* mesh, vec3 vertex)
 {
+    // Quake coordinates -> Y-up coordinates
+    vec3 yup_vertex;
+
+    yup_vertex[0] = vertex[0];
+    yup_vertex[1] = vertex[2];
+    yup_vertex[2] = -vertex[1];
+
     for (size_t i = 0; i < mesh->vertices_count; i++) {
-        if (glm_vec3_eqv(mesh->vertices[i], vertex)) {
+        if (glm_vec3_eqv(mesh->vertices[i], yup_vertex)) {
             return (int)i;
         }
     }
 
     int index = (int)mesh->vertices_count;
 
-    glm_vec3_copy(vertex, mesh->vertices[index]);
+    glm_vec3_copy(yup_vertex, mesh->vertices[index]);
     mesh->vertices_count++;
 
     return index;
 }
 
-Plane plane_from_points(vec3 a, vec3 b, vec3 c)
+Plane plane_from_points(Vector3 a, Vector3 b, Vector3 c)
 {
     Plane plane = { 0 };
 
@@ -95,15 +113,16 @@ void edge_plane_intersection(Plane plane, vec3 p, vec3 c, vec3 intersection)
     }
 }
 
-
 typedef struct {
     vec3 center;
     vec3 normal;
 } ConvexPolygonCompareUserData;
 
-int SDLCALL convex_polygon_compare(void* userdata, const void* a, const void* b)
+static ConvexPolygonCompareUserData convex_polygon_compare_user_data;
+
+int convex_polygon_compare(const void* a, const void* b)
 {
-    ConvexPolygonCompareUserData* data = userdata;
+    ConvexPolygonCompareUserData* data = &convex_polygon_compare_user_data;
     vec3* A = (vec3*)a;
     vec3* B = (vec3*)b;
 
@@ -122,31 +141,43 @@ int SDLCALL convex_polygon_compare(void* userdata, const void* a, const void* b)
     glm_vec3_copy(vec_b, proj_b);
     glm_vec3_muladds(data->normal, -dot_b, proj_b);
 
-    vec3 cross;
-    glm_vec3_cross(proj_a, proj_b, cross);
-    float cross_normal = glm_vec3_dot(cross, data->normal);
+    // Normalize projected vectors
+    glm_vec3_normalize(proj_a);
+    glm_vec3_normalize(proj_b);
 
-    if (cross_normal > 1e-6f) return -1;
-    if (cross_normal < -1e-6f) return 1;
+    // Calculate angles using atan2
+    // We need a consistent reference frame on the plane
+    vec3 reference, tangent;
 
-    // If cross product is ~0, vectors are collinear - sort by distance
-    float dist_a = glm_vec3_norm2(proj_a);
-    float dist_b = glm_vec3_norm2(proj_b);
+    // Create reference vector perpendicular to normal
+    if (fabsf(data->normal[0]) < 0.9f) {
+        glm_vec3_cross(data->normal, (vec3){1,0,0}, reference);
+    } else {
+        glm_vec3_cross(data->normal, (vec3){0,1,0}, reference);
+    }
+    glm_vec3_normalize(reference);
 
-    if (dist_a < dist_b) return -1;
-    if (dist_a > dist_b) return 1;
+    // Create tangent vector (completes the 2D coordinate system)
+    glm_vec3_cross(data->normal, reference, tangent);
+
+    // Get 2D coordinates on the plane
+    float angle_a = atan2f(glm_vec3_dot(proj_a, tangent), glm_vec3_dot(proj_a, reference));
+    float angle_b = atan2f(glm_vec3_dot(proj_b, tangent), glm_vec3_dot(proj_b, reference));
+
+    if (angle_a < angle_b)
+        return -1;
+    if (angle_a > angle_b)
+        return 1;
 
     return 0;
 }
 
-Mesh brush_to_mesh(Brush brush, Arena* arena)
+MeshData brush_to_mesh(Brush brush, Arena* arena)
 {
-    assert(brush.count + 4 <= 16 && "Too many cuts");
-
     Polyhedron polyhedra[2] = { 0 };
 
-    polyhedra[0].faces = PushArrayAligned(arena, Polygon, 6 + brush.count);
-    polyhedra[1].faces = PushArrayAligned(arena, Polygon, 6 + brush.count);
+    polyhedra[0].faces = PushArray(arena, Polygon, 6 + brush.count);
+    polyhedra[1].faces = PushArray(arena, Polygon, 6 + brush.count);
 
     int current_polyhedron = 0;
 
@@ -167,7 +198,7 @@ Mesh brush_to_mesh(Brush brush, Arena* arena)
 
         polyhedra[1 - current_polyhedron].count = 0;
 
-        Polygon clipped_poly = { 0 };
+        Polygon clipped_poly = {};
 
         for (size_t j = 0; j < polyhedra[current_polyhedron].count; j++) {
             Polygon* poly = &polyhedra[current_polyhedron].faces[j];
@@ -229,17 +260,20 @@ Mesh brush_to_mesh(Brush brush, Arena* arena)
             }
         }
 
-        if (clipped_poly.count >= 3) {
-            ConvexPolygonCompareUserData qsort_user_data = { 0 };
+        if (clipped_poly.count >= 32) {
+            fprintf(stderr, "ERROR: clipped_poly overflow\n");
+            assert(false);
+        }
 
-            glm_vec3_copy(plane.normal, qsort_user_data.normal);
+        if (clipped_poly.count >= 3) {
+            glm_vec3_copy(plane.normal, convex_polygon_compare_user_data.normal);
 
             for (size_t j = 0; j < clipped_poly.count; j++) {
-                glm_vec3_add(qsort_user_data.center, clipped_poly.vertices[j], qsort_user_data.center);
+                glm_vec3_add(convex_polygon_compare_user_data.center, clipped_poly.vertices[j], convex_polygon_compare_user_data.center);
             }
-            glm_vec3_divs(qsort_user_data.center, (float)clipped_poly.count, qsort_user_data.center);
+            glm_vec3_divs(convex_polygon_compare_user_data.center, (float)clipped_poly.count, convex_polygon_compare_user_data.center);
 
-            SDL_qsort_r(clipped_poly.vertices, clipped_poly.count, sizeof(vec3), convex_polygon_compare, &qsort_user_data);
+            qsort(clipped_poly.vertices, clipped_poly.count, sizeof(vec3), convex_polygon_compare);
 
             Polygon* new_poly = push_polygon(&polyhedra[1 - current_polyhedron]);
             new_poly->count = clipped_poly.count;
@@ -254,25 +288,25 @@ Mesh brush_to_mesh(Brush brush, Arena* arena)
 
     Polyhedron* output_polyhedron = &polyhedra[current_polyhedron];
 
-    int faces_upper_bound = 100;
-    int vertices_upper_bound = 100;
+    int faces_upper_bound = 500;
+    int vertices_upper_bound = 500;
 
     // for (size_t i = 0; i < output_polyhedron->count; i++) {
     //     faces_upper_bound += (int)output_polyhedron->faces[i].count - 2;
     //     vertices_upper_bound += (int)output_polyhedron->faces[i].count;
     // }
 
-    Mesh mesh = { 0 };
+    MeshData mesh = { 0 };
 
-    mesh.faces = PushArrayAligned(arena, ivec3, faces_upper_bound);
-    mesh.vertices = PushArrayAligned(arena, vec3, vertices_upper_bound);
+    mesh.indices = PushArray(arena, uint16_t, faces_upper_bound * 3);
+    mesh.vertices = PushArray(arena, vec3, vertices_upper_bound);
 
     for (size_t i = 0; i < output_polyhedron->count; i++) {
         Polygon* poly = &output_polyhedron->faces[i];
 
-        if (mesh.faces_count >= faces_upper_bound) {
+        if (mesh.indices_count >= faces_upper_bound) {
             printf("ERROR: faces_count (%zu) >= faces_upper_bound (%d)\n",
-                mesh.faces_count, faces_upper_bound);
+                mesh.indices_count, faces_upper_bound);
             printf("Polygon %zu has %zu vertices\n", i, poly->count);
             assert(false);
         }
@@ -286,13 +320,9 @@ Mesh brush_to_mesh(Brush brush, Arena* arena)
             int second_vertex_index = find_or_insert_vertex(&mesh, poly->vertices[j]);
             int third_vertex_index = find_or_insert_vertex(&mesh, poly->vertices[j + 1]);
 
-            ivec3 face = {
-                first_vertex_index,
-                second_vertex_index,
-                third_vertex_index
-            };
-
-            glm_ivec3_copy(face, mesh.faces[mesh.faces_count++]);
+            mesh.indices[mesh.indices_count++] = first_vertex_index;
+            mesh.indices[mesh.indices_count++] = second_vertex_index;
+            mesh.indices[mesh.indices_count++] = third_vertex_index;
         }
     }
 

@@ -1,7 +1,11 @@
-#include <SDL3/SDL_iostream.h>
-#include <cglm/cglm.h>
-#include <stdio.h>
+#include "map.h"
+
+#include "geometry.h"
+#include <almond.h>
 #include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 typedef struct {
     const char* data;
@@ -23,8 +27,7 @@ typedef enum {
 
 typedef struct {
     TokenKind kind;
-    const char* value;
-    size_t size;
+    StringView value;
 } Token;
 
 static bool is_eof(Lexer* lexer)
@@ -93,10 +96,14 @@ static void skip_whitespaces(Lexer* lexer)
 
 Token make_token(Lexer* lexer, TokenKind kind)
 {
-    return (Token){
+    StringView value = (StringView) {
+        &lexer->data[lexer->start],
+        lexer->current - lexer->start
+    };
+
+    return (Token) {
         .kind = kind,
-        .value = &lexer->data[lexer->start],
-        .size = lexer->current - lexer->start,
+        .value = value,
     };
 }
 
@@ -147,8 +154,7 @@ Token lexer_next(Lexer* lexer)
                 consume_char(lexer);
             return make_token(lexer, TOKEN_IDENTIFIER);
         }
-    }
-    break;
+    } break;
     }
 
     return make_token(lexer, TOKEN_ERROR);
@@ -156,16 +162,14 @@ Token lexer_next(Lexer* lexer)
 
 typedef struct {
     Lexer lexer;
+    Arena* arena;
+    MapEntityCallback* entity_callback;
+    void* userdata;
 } Parser;
 
 typedef struct {
     const char *key, value;
 } Metadata;
-
-typedef struct {
-    const char* classname;
-    const char* model;
-} Entity;
 
 static float parse_number(Parser* parser)
 {
@@ -176,32 +180,28 @@ static float parse_number(Parser* parser)
     }
 
     // Avoid bloating the stack
-    if (token.size > 64) {
+    if (token.value.count > 64) {
         assert(false && "String too long");
     }
 
-    char number_str[token.size + 1];
-    SDL_memcpy(number_str, token.value, token.size);
-    number_str[token.size] = '\0';
+    char number_str[token.value.count + 1];
+    memcpy(number_str, token.value.data, token.value.count);
+    number_str[token.value.count] = '\0';
 
-    float number = (float)SDL_strtod(number_str, NULL);
-
-    printf("%f ", number);
+    float number = (float)strtod(number_str, NULL);
 
     return number;
 }
 
-static void parse_vector3(Parser* parser)
+static void parse_vector3(Parser* parser, Vector3 vec)
 {
     if (lexer_next(&parser->lexer).kind != TOKEN_LEFT_PAREN) {
         assert(false && "Missing opening paren");
     }
 
-    parse_number(parser);
-    parse_number(parser);
-    parse_number(parser);
-
-    puts("\n");
+    vec[0] = parse_number(parser);
+    vec[1] = parse_number(parser);
+    vec[2] = parse_number(parser);
 
     if (lexer_next(&parser->lexer).kind != TOKEN_RIGHT_PAREN) {
         assert(false && "Missing closing paren");
@@ -210,26 +210,67 @@ static void parse_vector3(Parser* parser)
 
 static void parse_entity(Parser* parser)
 {
+    TempMemory temp = begin_temp_memory(parser->arena);
+
+    MapEntity* entity = PushStruct(parser->arena, MapEntity);
+    entity->brushes = PushArray(parser->arena, Brush, 100);
+    entity->brushes_count = 0;
+
     for (;;) {
         Token token = lexer_next(&parser->lexer);
 
+        if (token.kind == TOKEN_EOF) {
+            break;
+        }
+
         if (token.kind == TOKEN_STRING) {
+            if (token.value.count <= 2) {
+                continue;
+            }
+
             Token value_token = lexer_next(&parser->lexer);
 
             if (value_token.kind != TOKEN_STRING) {
                 assert(false && "Malformed metadata");
             }
 
-            printf("%.*s: %.*s\n", (int)token.size, token.value, (int)value_token.size, value_token.value);
-        } else if (token.kind == TOKEN_LEFT_BRACE) {
-            for (;;) {
-                parse_vector3(parser);
-                parse_vector3(parser);
-                parse_vector3(parser);
+            if (token.value.count - 2 == sizeof("classname") - 1 && memcmp("classname", token.value.data + 1, token.value.count - 2) == 0) {
+                entity->classname = value_token.value.data + 1;
+                entity->classname_size = value_token.value.count - 2;
+            }
 
-                if (lexer_next(&parser->lexer).kind != TOKEN_IDENTIFIER) {
+            // printf("%.*s: %.*s\n", (int)token.size, token.value, (int)value_token.size, value_token.value);
+        } else if (token.kind == TOKEN_LEFT_BRACE) {
+            if (entity->brushes_count == 100) {
+                assert(false);
+            }
+
+            Brush* brush = &entity->brushes[entity->brushes_count++];
+            brush->points = PushArray(parser->arena, Plane, 100);
+            brush->count = 0;
+
+            for (;;) {
+                Vector3 a, b, c;
+
+                parse_vector3(parser, a);
+                parse_vector3(parser, b);
+                parse_vector3(parser, c);
+
+                if (brush->count >= 100) {
                     assert(false);
                 }
+
+                Plane* plane = &brush->points[brush->count++];
+
+                *plane = plane_from_points(a, b, c);
+
+                Token material = lexer_next(&parser->lexer);
+
+                if (material.kind != TOKEN_IDENTIFIER) {
+                    assert(false);
+                }
+
+                plane->material = token.value;
 
                 parse_number(parser);
                 parse_number(parser);
@@ -250,6 +291,9 @@ static void parse_entity(Parser* parser)
         }
     }
 
+    parser->entity_callback(entity, parser->userdata, parser->arena);
+
+    end_temp_memory(temp);
 }
 
 static void parse(Parser* parser)
@@ -262,29 +306,16 @@ static void parse(Parser* parser)
     }
 }
 
-void load_map(const char* filename)
+void parse_map(const char* data, MapEntityCallback* entity_callback, void* userdata, Arena* arena)
 {
-    size_t map_data_size;
-    char* map_data = SDL_LoadFile(filename, &map_data_size);
-
-    assert(map_data);
-
-    // TODO: Load into a map arena idk
-
     Lexer lexer = { 0 };
-    lexer.data = map_data;
+    lexer.data = data;
 
     Parser parser = { 0 };
     parser.lexer = lexer;
+    parser.entity_callback = entity_callback;
+    parser.userdata = userdata;
+    parser.arena = arena;
 
     parse(&parser);
-
-    // Token token = lexer_next(&lexer);
-    //
-    // while (token.kind != TOKEN_EOF && token.kind != TOKEN_ERROR) {
-    //     printf("TOKEN [%d]: %.*s\n", token.kind, (int)token.size, token.value);
-    //     token = lexer_next(&lexer);
-    // }
-
-    SDL_free(map_data);
 }

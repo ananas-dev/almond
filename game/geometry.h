@@ -1,29 +1,15 @@
 #pragma once
 
+#include <almond.h>
 #include "arena.h"
-#include <cglm/cglm.h>
 
 typedef struct {
-    vec3 vertices[16]; // Edges upper-bound
-    size_t count;
-} Polygon;
-
-typedef struct {
-    Polygon* faces;
-    size_t count;
-} Polyhedron;
-
-typedef struct {
-    vec3* vertices;
-    size_t vertices_count;
-
-    ivec3* faces;
-    size_t faces_count;
-} Mesh;
-
-typedef struct {
-    vec3 normal;
-    vec3 anchor;
+    Vector3 normal;
+    Vector3 anchor;
+    Vector2 offset;
+    Vector2 scale;
+    float rotation;
+    StringView material;
 } Plane;
 
 typedef struct {
@@ -31,5 +17,5 @@ typedef struct {
     size_t count;
 } Brush;
 
-Plane plane_from_points(vec3 a, vec3 b, vec3 c);
-Mesh brush_to_mesh(Brush brush, Arena* arena);
+Plane plane_from_points(Vector3 a, Vector3 b, Vector3 c);
+MeshData brush_to_mesh(Brush brush, Arena* arena);
