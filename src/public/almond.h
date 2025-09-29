@@ -5,7 +5,16 @@
 #include <stdint.h>
 
 typedef float Vector2[2];
-typedef float Vector3[3];
+
+typedef struct {
+    union {
+        struct {
+            float x, y, z;
+        };
+        float items[3];
+    };
+} Vector3;
+
 typedef float Quaternion[4];
 
 typedef struct {
@@ -115,11 +124,18 @@ typedef struct {
     Vector2 left_stick;
     Vector2 right_stick;
 
-    GameButtonState move_up;
-    GameButtonState move_down;
-    GameButtonState move_right;
-    GameButtonState move_left;
+    union {
+        GameButtonState buttons[5];
+        struct {
+            GameButtonState move_up;
+            GameButtonState move_down;
+            GameButtonState move_right;
+            GameButtonState move_left;
+            GameButtonState move_jump;
+        };
+    };
+
 } ControllerInput;
 
-#define GAME_ITERATE(name) void(name)(GameMemory * memory, ControllerInput* input, DrawList * draw_list, Api * api)
+#define GAME_ITERATE(name) void(name)(GameMemory * memory, ControllerInput* input, DrawList * draw_list, float dt, Api * api)
 typedef GAME_ITERATE(GameIterateFn);

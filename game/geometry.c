@@ -4,6 +4,7 @@
 #include <stdlib.h>
 
 #define DISTEPSILON 1e-6
+#define GRID_SIZE 1e-2
 
 typedef struct {
     vec3 vertices[32]; // Edges upper-bound
@@ -46,25 +47,29 @@ Polygon* push_polygon(Polyhedron* polyhedron)
     return &polyhedron->faces[polyhedron->count++];
 }
 
+static void snap_to_grid(vec3 vertex, float grid_size)
+{
+    vertex[0] = roundf(vertex[0] / grid_size) * grid_size;
+    vertex[1] = roundf(vertex[1] / grid_size) * grid_size;
+    vertex[2] = roundf(vertex[2] / grid_size) * grid_size;
+}
+
 // O(n)
 static int find_or_insert_vertex(MeshData* mesh, vec3 vertex)
 {
-    // Quake coordinates -> Y-up coordinates
-    vec3 yup_vertex;
-
-    yup_vertex[0] = vertex[0];
-    yup_vertex[1] = vertex[2];
-    yup_vertex[2] = -vertex[1];
+    vec3 snapped_vertex;
+    glm_vec3_copy(vertex, snapped_vertex);
+    snap_to_grid(snapped_vertex, GRID_SIZE);
 
     for (size_t i = 0; i < mesh->vertices_count; i++) {
-        if (glm_vec3_eqv(mesh->vertices[i], yup_vertex)) {
+        if (glm_vec3_eqv_eps(mesh->vertices[i], snapped_vertex)) {
             return (int)i;
         }
     }
 
     int index = (int)mesh->vertices_count;
 
-    glm_vec3_copy(yup_vertex, mesh->vertices[index]);
+    glm_vec3_copy(snapped_vertex, mesh->vertices[index]);
     mesh->vertices_count++;
 
     return index;
@@ -111,6 +116,8 @@ void edge_plane_intersection(Plane plane, vec3 p, vec3 c, vec3 intersection)
         // Fallback
         glm_vec3_lerp(p, c, 0.5f, intersection);
     }
+
+    snap_to_grid(intersection, GRID_SIZE);
 }
 
 typedef struct {
@@ -151,9 +158,9 @@ int convex_polygon_compare(const void* a, const void* b)
 
     // Create reference vector perpendicular to normal
     if (fabsf(data->normal[0]) < 0.9f) {
-        glm_vec3_cross(data->normal, (vec3){1,0,0}, reference);
+        glm_vec3_cross(data->normal, (vec3) { 1, 0, 0 }, reference);
     } else {
-        glm_vec3_cross(data->normal, (vec3){0,1,0}, reference);
+        glm_vec3_cross(data->normal, (vec3) { 0, 1, 0 }, reference);
     }
     glm_vec3_normalize(reference);
 
@@ -174,7 +181,7 @@ int convex_polygon_compare(const void* a, const void* b)
 
 MeshData brush_to_mesh(Brush brush, Arena* arena)
 {
-    Polyhedron polyhedra[2] = { 0 };
+    Polyhedron polyhedra[2] = {};
 
     polyhedra[0].faces = PushArray(arena, Polygon, 6 + brush.count);
     polyhedra[1].faces = PushArray(arena, Polygon, 6 + brush.count);
@@ -190,6 +197,7 @@ MeshData brush_to_mesh(Brush brush, Arena* arena)
 
         for (int j = 0; j < 4; j++) {
             glm_vec3_scale(unit_cube_vertices[unit_cube_faces[i][j]], 8192, poly->vertices[j]);
+            snap_to_grid(poly->vertices[j], GRID_SIZE);
         }
     }
 
@@ -227,7 +235,7 @@ MeshData brush_to_mesh(Brush brush, Arena* arena)
 
                         bool is_duplicate = false;
                         for (size_t l = 0; l < clipped_poly.count; l++) {
-                            if (glm_vec3_eqv(intersection, clipped_poly.vertices[l])) {
+                            if (glm_vec3_eqv_eps(intersection, clipped_poly.vertices[l])) {
                                 is_duplicate = true;
                                 break;
                             }
@@ -246,7 +254,7 @@ MeshData brush_to_mesh(Brush brush, Arena* arena)
 
                     bool is_duplicate = false;
                     for (size_t l = 0; l < clipped_poly.count; l++) {
-                        if (glm_vec3_eqv(intersection, clipped_poly.vertices[l])) {
+                        if (glm_vec3_eqv_eps(intersection, clipped_poly.vertices[l])) {
                             is_duplicate = true;
                             break;
                         }
@@ -268,6 +276,7 @@ MeshData brush_to_mesh(Brush brush, Arena* arena)
         if (clipped_poly.count >= 3) {
             glm_vec3_copy(plane.normal, convex_polygon_compare_user_data.normal);
 
+            glm_vec3_zero(convex_polygon_compare_user_data.center);
             for (size_t j = 0; j < clipped_poly.count; j++) {
                 glm_vec3_add(convex_polygon_compare_user_data.center, clipped_poly.vertices[j], convex_polygon_compare_user_data.center);
             }
@@ -296,7 +305,7 @@ MeshData brush_to_mesh(Brush brush, Arena* arena)
     //     vertices_upper_bound += (int)output_polyhedron->faces[i].count;
     // }
 
-    MeshData mesh = { 0 };
+    MeshData mesh = {};
 
     mesh.indices = PushArray(arena, uint16_t, faces_upper_bound * 3);
     mesh.vertices = PushArray(arena, vec3, vertices_upper_bound);
@@ -304,7 +313,7 @@ MeshData brush_to_mesh(Brush brush, Arena* arena)
     for (size_t i = 0; i < output_polyhedron->count; i++) {
         Polygon* poly = &output_polyhedron->faces[i];
 
-        if (mesh.indices_count >= faces_upper_bound) {
+        if ((int)mesh.indices_count >= faces_upper_bound) {
             printf("ERROR: faces_count (%zu) >= faces_upper_bound (%d)\n",
                 mesh.indices_count, faces_upper_bound);
             printf("Polygon %zu has %zu vertices\n", i, poly->count);

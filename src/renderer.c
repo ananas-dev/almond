@@ -310,8 +310,6 @@ void renderer_play_draw_list(Renderer* renderer, DrawList* draw_list)
 
     glm_mul(renderer->projection_matrix, view_matrix, vertex_uniforms.proj_view_matrix);
 
-    glm_mat4_identity(vertex_uniforms.model_matrix);
-
     SDL_BindGPUGraphicsPipeline(render_pass, renderer->graphics_pipeline);
 
     for (size_t i = 0; i < draw_list->count; i++) {
@@ -320,6 +318,21 @@ void renderer_play_draw_list(Renderer* renderer, DrawList* draw_list)
         switch (cmd->type) {
         case DRAW_MESH: {
             MeshHandle mesh_handle = cmd->as.draw_mesh.mesh;
+            Transform transform = cmd->as.draw_mesh.transform;
+
+            vec3 scale;
+            glm_vec3_make(transform.scale, scale);
+
+            vec4 rotation;
+            glm_vec4_make(transform.rotation, rotation);
+
+            vec3 translation;
+            glm_vec3_copy(transform.position, translation);
+
+            glm_mat4_identity(vertex_uniforms.model_matrix);
+            glm_scale(vertex_uniforms.model_matrix, scale);
+            glm_quat_rotate(vertex_uniforms.model_matrix, rotation, vertex_uniforms.model_matrix);
+            glm_translate(vertex_uniforms.model_matrix, translation);
 
             if (mesh_handle == 0 || mesh_handle > renderer->mesh_storage.count) {
                 log_err("DrawMesh: Invalid MeshHandle");
