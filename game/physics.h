@@ -30,9 +30,9 @@ void update_physics_world(PhysicsWorld* physics_world, float dt, Arena* temp_are
 BodyID create_convex_hull_static_collider(PhysicsWorld* physics_world, MeshData* mesh, Arena* arena);
 
 CharacterController* create_character_controller(PhysicsWorld* physics_world, CharacterControllerCreateInfo* create_info, Arena* arena);
-void character_get_linear_velocity(CharacterController* character, Vector3 velocity);
+Vector3 character_get_linear_velocity(CharacterController* character);
 void character_set_linear_velocity(CharacterController* character, Vector3 velocity);
-void character_get_position(CharacterController* character, Vector3 position);
+Vector3 character_get_position(CharacterController* character);
 void character_set_position(CharacterController* character, Vector3 position);
 bool character_is_grounded(CharacterController* character);
 void character_update(PhysicsWorld* physics_world, CharacterController* character, float dt, Vector3 gravity);

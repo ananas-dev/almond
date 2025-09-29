@@ -35,9 +35,9 @@ void load_callback(MapEntity* entity, void* user_data, Arena* temp_arena)
         for (int i = 0; i < mesh_data.vertices_count; i++) {
             float temp = mesh_data.vertices[i].y;
 
-            mesh_data.vertices[i].item[0] /= 40.f;
-            mesh_data.vertices[i][1] = mesh_data.vertices[i][2] / 40.f;
-            mesh_data.vertices[i][2] = -temp / 40.f;
+            mesh_data.vertices[i].x /= 40.f;
+            mesh_data.vertices[i].y = mesh_data.vertices[i].z / 40.f;
+            mesh_data.vertices[i].z = -temp / 40.f;
         }
 
         state->game_state->meshes[state->game_state->meshes_count++] = state->api->create_mesh(&mesh_data);
@@ -51,7 +51,7 @@ GAME_ITERATE(game_iterate)
 {
     GameState* game_state = (GameState*)memory->permanent_storage;
 
-    draw_list->clear_color = (Color) {
+    draw_list->clear_color = (Vector4) {
         0.08f, 0.05f, 0.12f, 1.0f
     };
 
@@ -89,43 +89,37 @@ GAME_ITERATE(game_iterate)
     Vector2 direction = {};
 
     if (input->move_up.pressed) {
-        direction[1] -= 1.0f;
+        direction.y -= 1.0f;
     }
     if (input->move_down.pressed) {
-        direction[1] += 1.0f;
+        direction.y += 1.0f;
     }
     if (input->move_left.pressed) {
-        direction[0] -= 1.0f;
+        direction.x -= 1.0f;
     }
     if (input->move_right.pressed) {
-        direction[0] += 1.0f;
+        direction.x += 1.0f;
     }
 
-    // Normalize
-    float length = sqrtf(direction[0] * direction[0] + direction[1] * direction[1]);
-    if (length > 1e-6) {
-        direction[0] /= length;
-        direction[1] /= length;
-    }
+    direction = vector2_normalize(direction);
 
-    Vector3 velocity;
-    character_get_linear_velocity(game_state->character_controller, velocity);
+    Vector3 velocity = character_get_linear_velocity(game_state->character_controller);
 
-    velocity[0] = direction[0] * 4.0f;
-    velocity[2] = direction[1] * 4.0f;
+    velocity.x = direction.x * 4.0f;
+    velocity.z = direction.y * 4.0f;
 
     if (!character_is_grounded(game_state->character_controller)) {
-        if (velocity[1] <= -30.0f) {
-            velocity[1] = -30.0f;
+        if (velocity.y <= -30.0f) {
+            velocity.y = -30.0f;
         } else {
-            velocity[1] += -9.81f * dt;
+            velocity.y += -9.81f * dt;
         }
     } else {
-        velocity[1] = 0;
+        velocity.y = 0;
     }
 
     if (character_is_grounded(game_state->character_controller) && input->move_jump.pressed) {
-        velocity[1] = 10;
+        velocity.y = 10;
     }
 
     character_set_linear_velocity(game_state->character_controller, velocity);
@@ -134,24 +128,21 @@ GAME_ITERATE(game_iterate)
 
     update_physics_world(game_state->physics_world, dt, &game_state->transient_arena);
 
-    Vector3 position;
-    character_get_position(game_state->character_controller, position);
+    Vector3 position = character_get_position(game_state->character_controller);
 
     // printf("%f %f %f\n", position[0], position[1], position[2]);
     // printf("%f %f %f\n", velocity[0], velocity[1], velocity[2]);
 
-    draw_list->camera.position[0] = position[0];
-    draw_list->camera.position[1] = position[1] + 10;
-    draw_list->camera.position[2] = position[2] + 10;
+    draw_list->camera.position.x = position.x;
+    draw_list->camera.position.y = position.y + 10;
+    draw_list->camera.position.z = position.z + 10;
 
-    draw_list->camera.target[0] = position[0];
-    draw_list->camera.target[1] = position[1];
-    draw_list->camera.target[2] = position[2];
+    draw_list->camera.target.x = position.x;
+    draw_list->camera.target.y = position.y;
+    draw_list->camera.target.z = position.z;
 
     Transform character_transform = TRANSFORM_IDENTITY_INIT;
-    character_transform.position[0] = position[0];
-    character_transform.position[1] = position[1];
-    character_transform.position[2] = position[2];
+    character_transform.position = position;
 
     push_draw_mesh(draw_list, game_state->character_mesh, character_transform);
 

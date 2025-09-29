@@ -69,7 +69,7 @@ MeshData load_first_mesh_from_gltf(const char* path, Arena* arena) {
     for (int i = 0; i < output_mesh.vertices_count; i++) {
         Vertex* vertex = &output_mesh.vertices[i];
 
-        cgltf_accessor_read_float(positions->data, i, *vertex, 3);
+        cgltf_accessor_read_float(positions->data, i, vertex->items, 3);
         // cgltf_accessor_read_float(normals->data, i, vertex->normal, 3);
         // cgltf_accessor_read_float(uv_coords->data, i, vertex->uv_coord, 2);
     }

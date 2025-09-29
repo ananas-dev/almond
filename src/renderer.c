@@ -306,7 +306,11 @@ void renderer_play_draw_list(Renderer* renderer, DrawList* draw_list)
     VertexUniforms vertex_uniforms;
 
     mat4 view_matrix;
-    glm_lookat(draw_list->camera.position, draw_list->camera.target, (vec3){0.0f, 1.0f, 0.0f}, view_matrix);
+    vec3 eye, center;
+    glm_vec3_make(draw_list->camera.position.items, eye);
+    glm_vec3_make(draw_list->camera.target.items, center);
+
+    glm_lookat(eye, center, (vec3){0.0f, 1.0f, 0.0f}, view_matrix);
 
     glm_mul(renderer->projection_matrix, view_matrix, vertex_uniforms.proj_view_matrix);
 
@@ -321,13 +325,13 @@ void renderer_play_draw_list(Renderer* renderer, DrawList* draw_list)
             Transform transform = cmd->as.draw_mesh.transform;
 
             vec3 scale;
-            glm_vec3_make(transform.scale, scale);
+            glm_vec3_make(transform.scale.items, scale);
 
             vec4 rotation;
-            glm_vec4_make(transform.rotation, rotation);
+            glm_vec4_make(transform.rotation.items, rotation);
 
             vec3 translation;
-            glm_vec3_copy(transform.position, translation);
+            glm_vec3_copy(transform.position.items, translation);
 
             glm_mat4_identity(vertex_uniforms.model_matrix);
             glm_scale(vertex_uniforms.model_matrix, scale);

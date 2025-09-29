@@ -193,19 +193,22 @@ static float parse_number(Parser* parser)
     return number;
 }
 
-static void parse_vector3(Parser* parser, Vector3 vec)
+static Vector3 parse_vector3(Parser* parser)
 {
     if (lexer_next(&parser->lexer).kind != TOKEN_LEFT_PAREN) {
         assert(false && "Missing opening paren");
     }
 
-    vec[0] = parse_number(parser);
-    vec[1] = parse_number(parser);
-    vec[2] = parse_number(parser);
+    Vector3 vec;
+    vec.x = parse_number(parser);
+    vec.y = parse_number(parser);
+    vec.z = parse_number(parser);
 
     if (lexer_next(&parser->lexer).kind != TOKEN_RIGHT_PAREN) {
         assert(false && "Missing closing paren");
     }
+
+    return vec;
 }
 
 static void parse_entity(Parser* parser)
@@ -250,11 +253,9 @@ static void parse_entity(Parser* parser)
             brush->count = 0;
 
             for (;;) {
-                Vector3 a, b, c;
-
-                parse_vector3(parser, a);
-                parse_vector3(parser, b);
-                parse_vector3(parser, c);
+                Vector3 a = parse_vector3(parser);
+                Vector3 b = parse_vector3(parser);
+                Vector3 c = parse_vector3(parser);
 
                 if (brush->count >= 100) {
                     assert(false);

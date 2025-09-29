@@ -266,34 +266,36 @@ CharacterController* create_character_controller(PhysicsWorld* physics_world, Ch
     return controller;
 }
 
-void character_get_linear_velocity(CharacterController* character, Vector3 velocity)
-{
-    JPH::Vec3 jph_velocity = character->character_virtual.GetLinearVelocity();
+static Vector3 to_vector3(JPH::Vec3 vec3) {
+    return (Vector3) {
+        .x = vec3[0],
+        .y = vec3[1],
+        .z = vec3[2],
+    };
+}
 
-    velocity[0] = jph_velocity[0];
-    velocity[1] = jph_velocity[1];
-    velocity[2] = jph_velocity[2];
+static JPH::Vec3 to_jph_vec3(Vector3 vector3) {
+    return {vector3.x, vector3.y, vector3.z};
+}
+
+Vector3 character_get_linear_velocity(CharacterController* character)
+{
+    return to_vector3(character->character_virtual.GetLinearVelocity());
 }
 
 void character_set_linear_velocity(CharacterController* character, Vector3 velocity)
 {
-    JPH::Vec3 jph_velocity(velocity[0], velocity[1], velocity[2]);
-    character->character_virtual.SetLinearVelocity(jph_velocity);
+    character->character_virtual.SetLinearVelocity(to_jph_vec3(velocity));
 }
 
-void character_get_position(CharacterController* character, Vector3 position)
+Vector3 character_get_position(CharacterController* character)
 {
-    JPH::Vec3 jph_position = character->character_virtual.GetPosition();
-
-    position[0] = jph_position[0];
-    position[1] = jph_position[1];
-    position[2] = jph_position[2];
+    return to_vector3(character->character_virtual.GetPosition());
 }
 
 void character_set_position(CharacterController* character, Vector3 position)
 {
-    JPH::Vec3 jph_position(position[0], position[1], position[2]);
-    character->character_virtual.SetPosition(jph_position);
+    character->character_virtual.SetPosition(to_jph_vec3(position));
 }
 
 bool character_is_grounded(CharacterController* character)
@@ -303,7 +305,7 @@ bool character_is_grounded(CharacterController* character)
 
 void character_update(PhysicsWorld* physics_world, CharacterController* character, float dt, Vector3 gravity)
 {
-    JPH::Vec3 jph_gravity(gravity[0], gravity[1], gravity[2]);
+    JPH::Vec3 jph_gravity(gravity.x, gravity.y, gravity.z);
 
     JPH::CharacterVirtual::ExtendedUpdateSettings settings;
 
@@ -326,7 +328,7 @@ BodyID create_convex_hull_static_collider(PhysicsWorld* physics_world, MeshData*
 
     for (size_t i = 0; i < mesh->vertices_count; i++) {
         Vector3* vertex = &mesh->vertices[i];
-        vertices[i] = JPH::Vec3((*vertex)[0], (*vertex)[1], (*vertex)[2]);
+        vertices[i] = JPH::Vec3(vertex->x, vertex->y, vertex->z);
     }
 
     JPH::ConvexHullShapeSettings settings(vertices, (int)mesh->vertices_count);

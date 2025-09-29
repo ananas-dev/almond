@@ -1,13 +1,14 @@
 #include "geometry.h"
 
-#include <cglm/cglm.h>
+#include <assert.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 #define DISTEPSILON 1e-6
 #define GRID_SIZE 1e-2
 
 typedef struct {
-    vec3 vertices[32]; // Edges upper-bound
+    Vector3 vertices[32]; // Edges upper-bound
     size_t count;
 } Polygon;
 
@@ -16,7 +17,7 @@ typedef struct {
     size_t count;
 } Polyhedron;
 
-static vec3 unit_cube_vertices[8] = {
+static Vector3 unit_cube_vertices[8] = {
     { -0.5f, -0.5f, 0.5f }, // 0
     { 0.5f, -0.5f, 0.5f }, // 1
     { -0.5f, 0.5f, 0.5f }, // 2
@@ -27,7 +28,7 @@ static vec3 unit_cube_vertices[8] = {
     { 0.5f, 0.5f, -0.5f } // 7
 };
 
-static ivec4 unit_cube_faces[6] = {
+static uint16_t unit_cube_faces[6][4] = {
     // Top (z = 0.5)
     { 2, 3, 7, 6 },
     // Bottom (z = -0.5)
@@ -47,29 +48,30 @@ Polygon* push_polygon(Polyhedron* polyhedron)
     return &polyhedron->faces[polyhedron->count++];
 }
 
-static void snap_to_grid(vec3 vertex, float grid_size)
+static Vector3 snap_to_grid(Vector3 vertex, float grid_size)
 {
-    vertex[0] = roundf(vertex[0] / grid_size) * grid_size;
-    vertex[1] = roundf(vertex[1] / grid_size) * grid_size;
-    vertex[2] = roundf(vertex[2] / grid_size) * grid_size;
+    return (Vector3)
+    {
+        roundf(vertex.x / grid_size) * grid_size,
+            roundf(vertex.y / grid_size) * grid_size,
+            roundf(vertex.z / grid_size) * grid_size,
+    };
 }
 
 // O(n)
-static int find_or_insert_vertex(MeshData* mesh, vec3 vertex)
+static int find_or_insert_vertex(MeshData* mesh, Vector3 vertex)
 {
-    vec3 snapped_vertex;
-    glm_vec3_copy(vertex, snapped_vertex);
-    snap_to_grid(snapped_vertex, GRID_SIZE);
+    Vector3 snapped_vertex = snap_to_grid(vertex, GRID_SIZE);
 
     for (size_t i = 0; i < mesh->vertices_count; i++) {
-        if (glm_vec3_eqv_eps(mesh->vertices[i], snapped_vertex)) {
+        if (vector3_eq(mesh->vertices[i], snapped_vertex, DISTEPSILON)) {
             return (int)i;
         }
     }
 
     int index = (int)mesh->vertices_count;
 
-    glm_vec3_copy(snapped_vertex, mesh->vertices[index]);
+    mesh->vertices[index] = snapped_vertex;
     mesh->vertices_count++;
 
     return index;
@@ -79,50 +81,40 @@ Plane plane_from_points(Vector3 a, Vector3 b, Vector3 c)
 {
     Plane plane = { 0 };
 
-    vec3 b_minus_a;
-    vec3 c_minus_a;
-    glm_vec3_sub(b, a, b_minus_a);
-    glm_vec3_sub(c, a, c_minus_a);
-
-    glm_vec3_crossn(b_minus_a, c_minus_a, plane.normal);
-    glm_vec3_copy(a, plane.anchor);
+    plane.normal = vector3_normalize(vector3_cross(vector3_sub(b, a), vector3_sub(c, a)));
+    plane.anchor = a;
 
     return plane;
 }
 
-static bool is_inside_half_plane(Plane plane, vec3 x)
+static bool is_inside_half_plane(Plane plane, Vector3 x)
 {
-    vec3 x_minus_s;
-    glm_vec3_sub(x, plane.anchor, x_minus_s);
-    return glm_vec3_dot(x_minus_s, plane.normal) >= 0;
+    return vector3_dot(vector3_sub(x, plane.anchor), plane.normal) >= 0;
 }
 
-void edge_plane_intersection(Plane plane, vec3 p, vec3 c, vec3 intersection)
+Vector3 edge_plane_intersection(Plane plane, Vector3 p, Vector3 c)
 {
-    vec3 ray_dir;
-    glm_vec3_sub(c, p, ray_dir);
+    Vector3 ray_dir = vector3_sub(c, p);
+    Vector3 prev_to_anchor = vector3_sub(plane.anchor, p);
 
-    vec3 prev_to_anchor;
-    glm_vec3_sub(plane.anchor, p, prev_to_anchor);
+    float numerator = vector3_dot(prev_to_anchor, plane.normal);
+    float denominator = vector3_dot(ray_dir, plane.normal);
 
-    float numerator = glm_vec3_dot(prev_to_anchor, plane.normal);
-    float denominator = glm_vec3_dot(ray_dir, plane.normal);
-
+    Vector3 intersection;
     if (fabsf(denominator) > DISTEPSILON) {
         float t = numerator / denominator;
-        glm_vec3_copy(p, intersection);
-        glm_vec3_muladds(ray_dir, t, intersection);
+        intersection = vector3_add(p, vector3_scale(ray_dir, t));
     } else {
         // Fallback
-        glm_vec3_lerp(p, c, 0.5f, intersection);
+        intersection = vector3_lerp(p, c, 0.5f);
     }
 
-    snap_to_grid(intersection, GRID_SIZE);
+    return snap_to_grid(intersection, GRID_SIZE);
 }
 
 typedef struct {
-    vec3 center;
-    vec3 normal;
+    Vector3 center;
+    Vector3 normal;
 } ConvexPolygonCompareUserData;
 
 static ConvexPolygonCompareUserData convex_polygon_compare_user_data;
@@ -130,46 +122,41 @@ static ConvexPolygonCompareUserData convex_polygon_compare_user_data;
 int convex_polygon_compare(const void* a, const void* b)
 {
     ConvexPolygonCompareUserData* data = &convex_polygon_compare_user_data;
-    vec3* A = (vec3*)a;
-    vec3* B = (vec3*)b;
+    Vector3* A = (Vector3*)a;
+    Vector3* B = (Vector3*)b;
 
-    vec3 vec_a, vec_b;
-    glm_vec3_sub(*A, data->center, vec_a);
-    glm_vec3_sub(*B, data->center, vec_b);
+    Vector3 vec_a = vector3_sub(*A, data->center);
+    Vector3 vec_b = vector3_sub(*B, data->center);
 
     // Project vectors onto the plane
-    float dot_a = glm_vec3_dot(vec_a, data->normal);
-    float dot_b = glm_vec3_dot(vec_b, data->normal);
+    float dot_a = vector3_dot(vec_a, data->normal);
+    float dot_b = vector3_dot(vec_b, data->normal);
 
-    vec3 proj_a, proj_b;
-    glm_vec3_copy(vec_a, proj_a);
-    glm_vec3_muladds(data->normal, -dot_a, proj_a);
-
-    glm_vec3_copy(vec_b, proj_b);
-    glm_vec3_muladds(data->normal, -dot_b, proj_b);
+    Vector3 proj_a = vector3_sub(vec_a, vector3_scale(data->normal, dot_a));
+    Vector3 proj_b = vector3_sub(vec_b, vector3_scale(data->normal, dot_b));
 
     // Normalize projected vectors
-    glm_vec3_normalize(proj_a);
-    glm_vec3_normalize(proj_b);
+    proj_a = vector3_normalize(proj_a);
+    proj_b = vector3_normalize(proj_b);
 
     // Calculate angles using atan2
     // We need a consistent reference frame on the plane
-    vec3 reference, tangent;
+    Vector3 reference;
 
     // Create reference vector perpendicular to normal
-    if (fabsf(data->normal[0]) < 0.9f) {
-        glm_vec3_cross(data->normal, (vec3) { 1, 0, 0 }, reference);
+    if (fabsf(data->normal.x) < 0.9f) {
+        reference = vector3_cross(data->normal, VEC3(1, 0, 0));
     } else {
-        glm_vec3_cross(data->normal, (vec3) { 0, 1, 0 }, reference);
+        reference = vector3_cross(data->normal, VEC3(0, 1, 0));
     }
-    glm_vec3_normalize(reference);
+    reference = vector3_normalize(reference);
 
     // Create tangent vector (completes the 2D coordinate system)
-    glm_vec3_cross(data->normal, reference, tangent);
+    Vector3 tangent = vector3_cross(data->normal, reference);
 
     // Get 2D coordinates on the plane
-    float angle_a = atan2f(glm_vec3_dot(proj_a, tangent), glm_vec3_dot(proj_a, reference));
-    float angle_b = atan2f(glm_vec3_dot(proj_b, tangent), glm_vec3_dot(proj_b, reference));
+    float angle_a = atan2f(vector3_dot(proj_a, tangent), vector3_dot(proj_a, reference));
+    float angle_b = atan2f(vector3_dot(proj_b, tangent), vector3_dot(proj_b, reference));
 
     if (angle_a < angle_b)
         return -1;
@@ -196,8 +183,8 @@ MeshData brush_to_mesh(Brush brush, Arena* arena)
         poly->count = 4;
 
         for (int j = 0; j < 4; j++) {
-            glm_vec3_scale(unit_cube_vertices[unit_cube_faces[i][j]], 8192, poly->vertices[j]);
-            snap_to_grid(poly->vertices[j], GRID_SIZE);
+            poly->vertices[j] = vector3_scale(unit_cube_vertices[unit_cube_faces[i][j]], 8192);
+            poly->vertices[j] = snap_to_grid(poly->vertices[j], GRID_SIZE);
         }
     }
 
@@ -219,51 +206,46 @@ MeshData brush_to_mesh(Brush brush, Arena* arena)
             new_poly->count = 0;
 
             for (size_t k = 0; k < poly->count; k++) {
-                vec3 current_point;
-                glm_vec3_copy(poly->vertices[k], current_point);
-
-                vec3 prev_point;
-                glm_vec3_copy(poly->vertices[(k - 1 + poly->count) % poly->count], prev_point);
+                Vector3 current_point = poly->vertices[k];
+                Vector3 prev_point = poly->vertices[(k - 1 + poly->count) % poly->count];
 
                 bool is_current_inside = is_inside_half_plane(plane, current_point);
                 bool is_prev_inside = is_inside_half_plane(plane, prev_point);
 
                 if (is_current_inside) {
                     if (!is_prev_inside) {
-                        vec3 intersection;
-                        edge_plane_intersection(plane, prev_point, current_point, intersection);
+                        Vector3 intersection = edge_plane_intersection(plane, prev_point, current_point);
 
                         bool is_duplicate = false;
                         for (size_t l = 0; l < clipped_poly.count; l++) {
-                            if (glm_vec3_eqv_eps(intersection, clipped_poly.vertices[l])) {
+                            if (vector3_eq(intersection, clipped_poly.vertices[l], DISTEPSILON)) {
                                 is_duplicate = true;
                                 break;
                             }
                         }
                         if (!is_duplicate) {
-                            glm_vec3_copy(intersection, clipped_poly.vertices[clipped_poly.count++]);
+                            clipped_poly.vertices[clipped_poly.count++] = intersection;
                         }
 
-                        glm_vec3_copy(intersection, new_poly->vertices[new_poly->count++]);
+                        new_poly->vertices[new_poly->count++] = intersection;
                     }
 
-                    glm_vec3_copy(current_point, new_poly->vertices[new_poly->count++]);
+                    new_poly->vertices[new_poly->count++] = current_point;
                 } else if (is_prev_inside) {
-                    vec3 intersection;
-                    edge_plane_intersection(plane, prev_point, current_point, intersection);
+                    Vector3 intersection = edge_plane_intersection(plane, prev_point, current_point);
 
                     bool is_duplicate = false;
                     for (size_t l = 0; l < clipped_poly.count; l++) {
-                        if (glm_vec3_eqv_eps(intersection, clipped_poly.vertices[l])) {
+                        if (vector3_eq(intersection, clipped_poly.vertices[l], DISTEPSILON)) {
                             is_duplicate = true;
                             break;
                         }
                     }
                     if (!is_duplicate) {
-                        glm_vec3_copy(intersection, clipped_poly.vertices[clipped_poly.count++]);
+                        clipped_poly.vertices[clipped_poly.count++] = intersection;
                     }
 
-                    glm_vec3_copy(intersection, new_poly->vertices[new_poly->count++]);
+                    new_poly->vertices[new_poly->count++] = intersection;
                 }
             }
         }
@@ -274,21 +256,21 @@ MeshData brush_to_mesh(Brush brush, Arena* arena)
         }
 
         if (clipped_poly.count >= 3) {
-            glm_vec3_copy(plane.normal, convex_polygon_compare_user_data.normal);
+            convex_polygon_compare_user_data.normal = plane.normal;
+            convex_polygon_compare_user_data.center = VEC3_ZERO;
 
-            glm_vec3_zero(convex_polygon_compare_user_data.center);
             for (size_t j = 0; j < clipped_poly.count; j++) {
-                glm_vec3_add(convex_polygon_compare_user_data.center, clipped_poly.vertices[j], convex_polygon_compare_user_data.center);
+                convex_polygon_compare_user_data.center = vector3_add(convex_polygon_compare_user_data.center, clipped_poly.vertices[j]);
             }
-            glm_vec3_divs(convex_polygon_compare_user_data.center, (float)clipped_poly.count, convex_polygon_compare_user_data.center);
+            convex_polygon_compare_user_data.center = vector3_divs(convex_polygon_compare_user_data.center, (float)clipped_poly.count);
 
-            qsort(clipped_poly.vertices, clipped_poly.count, sizeof(vec3), convex_polygon_compare);
+            qsort(clipped_poly.vertices, clipped_poly.count, sizeof(Vector3), convex_polygon_compare);
 
             Polygon* new_poly = push_polygon(&polyhedra[1 - current_polyhedron]);
             new_poly->count = clipped_poly.count;
 
             for (size_t j = 0; j < clipped_poly.count; j++) {
-                glm_vec3_copy(clipped_poly.vertices[j], new_poly->vertices[j]);
+                new_poly->vertices[j] = clipped_poly.vertices[j];
             }
         }
 
@@ -308,7 +290,7 @@ MeshData brush_to_mesh(Brush brush, Arena* arena)
     MeshData mesh = {};
 
     mesh.indices = PushArray(arena, uint16_t, faces_upper_bound * 3);
-    mesh.vertices = PushArray(arena, vec3, vertices_upper_bound);
+    mesh.vertices = PushArray(arena, Vector3, vertices_upper_bound);
 
     for (size_t i = 0; i < output_polyhedron->count; i++) {
         Polygon* poly = &output_polyhedron->faces[i];

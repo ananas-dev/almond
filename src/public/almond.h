@@ -4,22 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-typedef float Vector2[2];
-
-typedef struct {
-    union {
-        struct {
-            float x, y, z;
-        };
-        float items[3];
-    };
-} Vector3;
-
-typedef float Quaternion[4];
-
-typedef struct {
-    float r, g, b, a;
-} Color;
+#include "almond_math.h"
 
 typedef struct {
     const char* data;
@@ -73,7 +58,7 @@ typedef struct {
 
 typedef struct {
     Vector3 position;
-    Quaternion rotation;
+    Vector4 rotation;
     Vector3 scale;
 } Transform;
 
@@ -95,7 +80,7 @@ typedef struct {
 } DrawCommand;
 
 typedef struct {
-    Color clear_color;
+    Vector4 clear_color;
     Camera camera;
     DrawCommand* commands;
     size_t count;
