@@ -5,6 +5,9 @@ typedef union {
     struct {
         float x, y;
     };
+    struct {
+        float u, v;
+    };
     float items[2];
 } Vector2;
 
@@ -15,6 +18,8 @@ typedef union {
             (x), (y) \
         }            \
     }
+
+#define VEC2_ZERO VEC2(0.0f, 0.0f)
 
 static inline Vector2 vector2_add(Vector2 a, Vector2 b)
 {
@@ -126,3 +131,13 @@ typedef union {
     };
     float items[4];
 } Vector4;
+
+#define VEC4(x, y, z, w)       \
+    (Vector4)                  \
+    {                          \
+        {                      \
+            (x), (y), (z), (w) \
+        }                      \
+    }
+
+#define VEC4_ZERO VEC4(0.0f, 0.0f, 0.0f, 0.0f)

@@ -23,64 +23,7 @@ LOAD_ENTIRE_FILE(load_entire_file_sdl)
 
 CREATE_TEXTURE(create_texture_sdl)
 {
-    SDL_GPUTextureCreateInfo texture_create_info = {};
-    texture_create_info.type = SDL_GPU_TEXTURETYPE_2D;
-    texture_create_info.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
-    texture_create_info.width = width;
-    texture_create_info.height = height;
-    texture_create_info.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER;
-    texture_create_info.layer_count_or_depth = 1;
-    texture_create_info.num_levels = 1;
-    texture_create_info.sample_count = SDL_GPU_SAMPLECOUNT_1;
-
-    SDL_GPUTexture* texture = SDL_CreateGPUTexture(renderer.device, &texture_create_info);
-
-    SDL_GPUTransferBufferCreateInfo transfer_buffer_create_info = {
-        .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
-        .size = width * height * 4,
-    };
-
-    SDL_GPUTransferBuffer* transfer_buffer = SDL_CreateGPUTransferBuffer(renderer.device, &transfer_buffer_create_info);
-    if (!transfer_buffer) {
-        SDL_ReleaseGPUTexture(renderer.device, texture);
-        return 0;
-    }
-
-    void* transfer_data = SDL_MapGPUTransferBuffer(renderer.device, transfer_buffer, true);
-
-    if (!transfer_data) {
-        SDL_ReleaseGPUTransferBuffer(renderer.device, transfer_buffer);
-        SDL_ReleaseGPUTexture(renderer.device, texture);
-        return 0;
-    }
-
-    memcpy(transfer_data, rgba_data, width * height * 4);
-
-    SDL_UnmapGPUTransferBuffer(renderer.device, transfer_buffer);
-
-    SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(renderer.device);
-    SDL_GPUCopyPass* copy_pass = SDL_BeginGPUCopyPass(cmd);
-
-    SDL_GPUTextureTransferInfo transfer_info = {
-        .offset = 0,
-        .pixels_per_row = width,
-        .rows_per_layer = height,
-    };
-
-    SDL_GPUTextureRegion region = {
-        .w = width,
-        .h = height,
-        .texture = texture,
-    };
-
-    SDL_UploadToGPUTexture(copy_pass, &transfer_info, &region, true);
-
-    SDL_EndGPUCopyPass(copy_pass);
-    SDL_SubmitGPUCommandBuffer(cmd);
-
-    SDL_ReleaseGPUTransferBuffer(renderer.device, transfer_buffer);
-
-    return 0;
+    return renderer_create_texture(&renderer, rgba_data, width, height);
 }
 
 CREATE_MESH(create_mesh_sdl)
@@ -204,15 +147,17 @@ int main(int argc, char* argv[])
             input.buttons[i].half_transition_count = 0;
         }
 
+        input.mouse_movement = VEC2_ZERO;
+
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
             case SDL_EVENT_QUIT:
                 running = false;
                 break;
-            // case SDL_EVENT_WINDOW_MOUSE_ENTER: {
-            //     SDL_SetWindowRelativeMouseMode(platform.window, true);
-            // } break;
+            case SDL_EVENT_WINDOW_MOUSE_ENTER: {
+                SDL_SetWindowRelativeMouseMode(platform.window, true);
+            } break;
             case SDL_EVENT_MOUSE_MOTION: {
                 input.mouse_movement.x += event.motion.xrel;
                 input.mouse_movement.y += event.motion.yrel;
@@ -221,9 +166,9 @@ int main(int argc, char* argv[])
                 if (event.key.repeat) continue;
 
                 switch (event.key.key) {
-                // case SDLK_ESCAPE: {
-                //     SDL_SetWindowRelativeMouseMode(platform.window, false);
-                // } break;
+                case SDLK_ESCAPE: {
+                    SDL_SetWindowRelativeMouseMode(platform.window, false);
+                } break;
                 case SDLK_W: {
                     input.move_up.half_transition_count++;
                     input.move_up.pressed = true;

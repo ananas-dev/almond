@@ -15,8 +15,6 @@
 //     vec2 uv_coord;
 // } Vertex;
 
-typedef Vector3 Vertex;
-
 MeshData load_first_mesh_from_gltf(const char* path, Arena* arena) {
     MeshData output_mesh = {0};
 
@@ -69,9 +67,10 @@ MeshData load_first_mesh_from_gltf(const char* path, Arena* arena) {
     for (int i = 0; i < output_mesh.vertices_count; i++) {
         Vertex* vertex = &output_mesh.vertices[i];
 
-        cgltf_accessor_read_float(positions->data, i, vertex->items, 3);
+        cgltf_accessor_read_float(positions->data, i, vertex->position.items, 3);
+        memset(vertex->texcoords.items, 0, 2 * sizeof(float));
         // cgltf_accessor_read_float(normals->data, i, vertex->normal, 3);
-        // cgltf_accessor_read_float(uv_coords->data, i, vertex->uv_coord, 2);
+        // cgltf_accessor_read_float(uv_coords->data, i, vertex->texcoords.items, 2);
     }
 
     output_mesh.indices_count = primitive.indices->count;

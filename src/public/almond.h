@@ -26,7 +26,12 @@ typedef struct {
 } Camera;
 
 typedef struct {
-    Vector3* vertices;
+    Vector3 position;
+    Vector2 texcoords;
+} Vertex;
+
+typedef struct {
+    Vertex* vertices;
     size_t vertices_count;
 
     uint16_t* indices;
@@ -62,11 +67,12 @@ typedef struct {
     Vector3 scale;
 } Transform;
 
-#define TRANSFORM_IDENTITY_INIT { { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f, 1.0f }, { 1.0f, 1.0f, 1.0f } }
+#define TRANSFORM_IDENTITY_INIT { VEC3_ZERO, VEC4(0.0f, 0.0f, 0.0f, 1.0f), VEC3(1.0f, 1.0f, 1.0f) }
 #define TRANSFORM_IDENTITY ((Transform)TRANSFORM_IDENTITY_INIT)
 
 typedef enum {
     DRAW_MESH,
+    DRAW_DEBUG_COLLIDER,
 } DrawCommandType;
 
 typedef struct {
@@ -74,8 +80,13 @@ typedef struct {
     union {
         struct {
             MeshHandle mesh;
+            TextureHandle texture;
             Transform transform;
         } draw_mesh;
+        struct {
+            MeshHandle mesh;
+            Transform transform;
+        } debug_collider;
     } as;
 } DrawCommand;
 

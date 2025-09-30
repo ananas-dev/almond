@@ -8,8 +8,16 @@
 #define GRID_SIZE 1e-2
 
 typedef struct {
+    Vector2 offset;
+    Vector2 scale;
+    float rotation;
+} TexInfo;
+
+typedef struct {
     Vector3 vertices[32]; // Edges upper-bound
     size_t count;
+    TexInfo tex_info;
+    Vector3 normal;
 } Polygon;
 
 typedef struct {
@@ -18,14 +26,14 @@ typedef struct {
 } Polyhedron;
 
 static Vector3 unit_cube_vertices[8] = {
-    { -0.5f, -0.5f, 0.5f }, // 0
-    { 0.5f, -0.5f, 0.5f }, // 1
-    { -0.5f, 0.5f, 0.5f }, // 2
-    { 0.5f, 0.5f, 0.5f }, // 3
-    { -0.5f, -0.5f, -0.5f }, // 4
-    { 0.5f, -0.5f, -0.5f }, // 5
-    { -0.5f, 0.5f, -0.5f }, // 6
-    { 0.5f, 0.5f, -0.5f } // 7
+    { { -0.5f, -0.5f, 0.5f } }, // 0
+    { { 0.5f, -0.5f, 0.5f } }, // 1
+    { { -0.5f, 0.5f, 0.5f } }, // 2
+    { { 0.5f, 0.5f, 0.5f } }, // 3
+    { { -0.5f, -0.5f, -0.5f } }, // 4
+    { { 0.5f, -0.5f, -0.5f } }, // 5
+    { { -0.5f, 0.5f, -0.5f } }, // 6
+    { { 0.5f, 0.5f, -0.5f } } // 7
 };
 
 static uint16_t unit_cube_faces[6][4] = {
@@ -43,6 +51,15 @@ static uint16_t unit_cube_faces[6][4] = {
     { 4, 6, 7, 5 }
 };
 
+static Vector3 unit_cube_normals[6] = {
+    { { 0.0f, 0.0f, 1.0f } },   // Top (z = 0.5)
+    { { 0.0f, 0.0f, -1.0f } },  // Bottom (z = -0.5)
+    { { -1.0f, 0.0f, 0.0f } },  // Left (x = -0.5)
+    { { 1.0f, 0.0f, 0.0f } },   // Right (x = 0.5)
+    { { 0.0f, -1.0f, 0.0f } },  // Front (y = -0.5)
+    { { 0.0f, 1.0f, 0.0f } }    // Back (y = 0.5)
+};
+
 Polygon* push_polygon(Polyhedron* polyhedron)
 {
     return &polyhedron->faces[polyhedron->count++];
@@ -50,28 +67,61 @@ Polygon* push_polygon(Polyhedron* polyhedron)
 
 static Vector3 snap_to_grid(Vector3 vertex, float grid_size)
 {
-    return (Vector3)
-    {
+    return VEC3(
         roundf(vertex.x / grid_size) * grid_size,
-            roundf(vertex.y / grid_size) * grid_size,
-            roundf(vertex.z / grid_size) * grid_size,
-    };
+        roundf(vertex.y / grid_size) * grid_size,
+        roundf(vertex.z / grid_size) * grid_size);
 }
 
 // O(n)
-static int find_or_insert_vertex(MeshData* mesh, Vector3 vertex)
+static int find_or_insert_vertex(MeshData* mesh, Vector3 position, TexInfo tex_info, Vector3 normal)
 {
-    Vector3 snapped_vertex = snap_to_grid(vertex, GRID_SIZE);
+    Vector3 snapped_position = snap_to_grid(position, GRID_SIZE);
 
     for (size_t i = 0; i < mesh->vertices_count; i++) {
-        if (vector3_eq(mesh->vertices[i], snapped_vertex, DISTEPSILON)) {
+        if (vector3_eq(mesh->vertices[i].position, snapped_position, DISTEPSILON)) {
             return (int)i;
         }
     }
 
     int index = (int)mesh->vertices_count;
 
-    mesh->vertices[index] = snapped_vertex;
+    // Choose initial U and V axes perpendicular to normal
+    Vector3 u_axis, v_axis;
+
+    // Find the axis most aligned with the normal
+    if (fabsf(normal.x) > fabsf(normal.y) && fabsf(normal.x) > fabsf(normal.z)) {
+        // Normal mostly along X, use Y-Z plane
+        u_axis = VEC3(0, 1, 0);
+    } else if (fabsf(normal.y) > fabsf(normal.z)) {
+        // Normal mostly along Y, use X-Z plane
+        u_axis = VEC3(1, 0, 0);
+    } else {
+        // Normal mostly along Z, use X-Y plane
+        u_axis = VEC3(1, 0, 0);
+    }
+
+    // Make u_axis perpendicular to normal
+    u_axis = vector3_normalize(vector3_cross(u_axis, normal));
+    v_axis = vector3_cross(normal, u_axis);
+
+    // Apply rotation (if rotation angle is non-zero)
+    float rotation = 0.0f; // Third value in the format (0 0 0 1 1)
+    if (rotation != 0.0f) {
+        // Rotate u_axis and v_axis around the normal
+        // (rotation matrix code here)
+    }
+
+    // Apply scale
+    u_axis = vector3_scale(u_axis, 1.0f / tex_info.scale.u);
+    v_axis = vector3_scale(v_axis, 1.0f / tex_info.scale.v);
+
+    // FIXME: Un-hardcode texture size
+    float u = vector3_dot(snapped_position, u_axis) / 32.0f + tex_info.offset.u;
+    float v = vector3_dot(snapped_position, v_axis) / 32.0f + tex_info.offset.v;
+
+    mesh->vertices[index].position = snapped_position;
+    mesh->vertices[index].texcoords = VEC2(u, v);
     mesh->vertices_count++;
 
     return index;
@@ -180,6 +230,9 @@ MeshData brush_to_mesh(Brush brush, Arena* arena)
     for (int i = 0; i < 6; i++) {
         Polygon* poly = &polyhedra[current_polyhedron].faces[i];
 
+        // poly->tex_info;
+        poly->normal = unit_cube_normals[i];
+
         poly->count = 4;
 
         for (int j = 0; j < 4; j++) {
@@ -204,6 +257,8 @@ MeshData brush_to_mesh(Brush brush, Arena* arena)
 
             Polygon* new_poly = push_polygon(&polyhedra[1 - current_polyhedron]);
             new_poly->count = 0;
+            new_poly->normal = poly->normal;
+            new_poly->tex_info = poly->tex_info;
 
             for (size_t k = 0; k < poly->count; k++) {
                 Vector3 current_point = poly->vertices[k];
@@ -272,6 +327,11 @@ MeshData brush_to_mesh(Brush brush, Arena* arena)
             for (size_t j = 0; j < clipped_poly.count; j++) {
                 new_poly->vertices[j] = clipped_poly.vertices[j];
             }
+
+            new_poly->normal = plane.normal;
+            new_poly->tex_info.offset = plane.offset;
+            new_poly->tex_info.scale = plane.scale;
+            new_poly->tex_info.rotation = plane.rotation;
         }
 
         current_polyhedron = (current_polyhedron + 1) % 2;
@@ -290,7 +350,7 @@ MeshData brush_to_mesh(Brush brush, Arena* arena)
     MeshData mesh = {};
 
     mesh.indices = PushArray(arena, uint16_t, faces_upper_bound * 3);
-    mesh.vertices = PushArray(arena, Vector3, vertices_upper_bound);
+    mesh.vertices = PushArray(arena, Vertex, vertices_upper_bound);
 
     for (size_t i = 0; i < output_polyhedron->count; i++) {
         Polygon* poly = &output_polyhedron->faces[i];
@@ -305,11 +365,11 @@ MeshData brush_to_mesh(Brush brush, Arena* arena)
         if (poly->count < 3)
             continue;
 
-        int first_vertex_index = find_or_insert_vertex(&mesh, poly->vertices[0]);
+        int first_vertex_index = find_or_insert_vertex(&mesh, poly->vertices[0], poly->tex_info, poly->normal);
 
         for (size_t j = 1; j < poly->count - 1; j++) {
-            int second_vertex_index = find_or_insert_vertex(&mesh, poly->vertices[j]);
-            int third_vertex_index = find_or_insert_vertex(&mesh, poly->vertices[j + 1]);
+            int second_vertex_index = find_or_insert_vertex(&mesh, poly->vertices[j], poly->tex_info, poly->normal);
+            int third_vertex_index = find_or_insert_vertex(&mesh, poly->vertices[j + 1], poly->tex_info, poly->normal);
 
             mesh.indices[mesh.indices_count++] = first_vertex_index;
             mesh.indices[mesh.indices_count++] = second_vertex_index;

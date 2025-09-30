@@ -11,7 +11,7 @@ typedef struct {
 } VertexUniforms;
 
 static SDL_GPUShader* load_shader(SDL_GPUDevice* device, const char* path, SDL_GPUShaderStage stage,
-    int num_uniform_buffers)
+    int num_uniform_buffers, int num_samplers)
 {
     size_t shader_code_size;
     void* shader_code = SDL_LoadFile(path, &shader_code_size);
@@ -25,7 +25,7 @@ static SDL_GPUShader* load_shader(SDL_GPUDevice* device, const char* path, SDL_G
     create_info.entrypoint = "main";
     create_info.format = SDL_GPU_SHADERFORMAT_SPIRV;
     create_info.stage = stage;
-    create_info.num_samplers = 0;
+    create_info.num_samplers = num_samplers;
     create_info.num_storage_buffers = 0;
     create_info.num_storage_textures = 0;
     create_info.num_uniform_buffers = num_uniform_buffers;
@@ -50,8 +50,8 @@ bool renderer_init(Renderer* renderer, SDL_Window* window)
     // bool supports_mailbox = SDL_WindowSupportsGPUPresentMode(renderer->device, renderer->window, SDL_GPU_PRESENTMODE_MAILBOX);
     SDL_SetGPUSwapchainParameters(renderer->device, renderer->window, SDL_GPU_SWAPCHAINCOMPOSITION_SDR, SDL_GPU_PRESENTMODE_VSYNC);
 
-    SDL_GPUShader* vertex_shader = load_shader(renderer->device, "shaders/vert.spv", SDL_GPU_SHADERSTAGE_VERTEX, 1);
-    SDL_GPUShader* fragment_shader = load_shader(renderer->device, "shaders/frag.spv", SDL_GPU_SHADERSTAGE_FRAGMENT, 0);
+    SDL_GPUShader* vertex_shader = load_shader(renderer->device, "shaders/vert.spv", SDL_GPU_SHADERSTAGE_VERTEX, 1, 0);
+    SDL_GPUShader* fragment_shader = load_shader(renderer->device, "shaders/frag.spv", SDL_GPU_SHADERSTAGE_FRAGMENT, 0, 1);
 
     SDL_GPUGraphicsPipelineCreateInfo pipeline_create_info = {};
     pipeline_create_info.vertex_shader = vertex_shader;
@@ -63,18 +63,24 @@ bool renderer_init(Renderer* renderer, SDL_Window* window)
     vertex_buffer_description[0].slot = 0;
     vertex_buffer_description[0].input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX;
     vertex_buffer_description[0].instance_step_rate = 0;
-    vertex_buffer_description[0].pitch = 3 * sizeof(float);
+    vertex_buffer_description[0].pitch = sizeof(Vertex);
 
     pipeline_create_info.vertex_input_state.num_vertex_buffers = 1;
     pipeline_create_info.vertex_input_state.vertex_buffer_descriptions = vertex_buffer_description;
 
-    SDL_GPUVertexAttribute vertex_attributes[1] = {};
+    SDL_GPUVertexAttribute vertex_attributes[2] = {};
     vertex_attributes[0].buffer_slot = 0;
     vertex_attributes[0].location = 0;
     vertex_attributes[0].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3;
-    vertex_attributes[0].offset = 0;
+    vertex_attributes[0].offset = offsetof(Vertex, position);
 
-    pipeline_create_info.vertex_input_state.num_vertex_attributes = 1;
+    // UV attribute
+    vertex_attributes[1].buffer_slot = 0;
+    vertex_attributes[1].location = 1;
+    vertex_attributes[1].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2;
+    vertex_attributes[1].offset = offsetof(Vertex, texcoords);
+
+    pipeline_create_info.vertex_input_state.num_vertex_attributes = 2;
     pipeline_create_info.vertex_input_state.vertex_attributes = vertex_attributes;
 
     SDL_GPUColorTargetDescription color_target_descriptions[1] = {};
@@ -133,8 +139,22 @@ bool renderer_init(Renderer* renderer, SDL_Window* window)
         SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Failed to create depth texture: %s", SDL_GetError());
     }
 
+    SDL_GPUSamplerCreateInfo sampler_info = {
+        .min_filter = SDL_GPU_FILTER_LINEAR,
+        .mag_filter = SDL_GPU_FILTER_LINEAR,
+        .mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_LINEAR,
+        .address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_REPEAT,
+        .address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_REPEAT,
+        .address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_REPEAT,
+    };
+
+    renderer->texture_sampler = SDL_CreateGPUSampler(renderer->device, &sampler_info);
+
     renderer->mesh_storage.capacity = 1024 * 10;
     renderer->mesh_storage.meshes = SDL_malloc(renderer->mesh_storage.capacity);
+
+    renderer->texture_storage.capacity = 1024 * 10;
+    renderer->texture_storage.textures = SDL_malloc(renderer->texture_storage.capacity);
 
     glm_perspective(glm_rad(45.0f), (float)width / (float)height, 1.0f, 4096.0f, renderer->projection_matrix);
 
@@ -259,6 +279,77 @@ MeshHandle renderer_create_mesh(Renderer* renderer, MeshData* mesh_data)
 
     return mesh_resource->handle;
 }
+TextureHandle renderer_create_texture(Renderer* renderer, const uint8_t* rgba_data, int width, int height)
+{
+    SDL_GPUTextureCreateInfo texture_create_info = {};
+    texture_create_info.type = SDL_GPU_TEXTURETYPE_2D;
+    texture_create_info.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+    texture_create_info.width = width;
+    texture_create_info.height = height;
+    texture_create_info.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER;
+    texture_create_info.layer_count_or_depth = 1;
+    texture_create_info.num_levels = 1;
+    texture_create_info.sample_count = SDL_GPU_SAMPLECOUNT_1;
+
+    SDL_GPUTexture* texture = SDL_CreateGPUTexture(renderer->device, &texture_create_info);
+    if (!texture) {
+        log_err("%", SDL_GetError());
+        return 0;
+    }
+
+    SDL_GPUTransferBufferCreateInfo transfer_buffer_create_info = {
+        .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
+        .size = width * height * 4,
+    };
+
+    SDL_GPUTransferBuffer* transfer_buffer = SDL_CreateGPUTransferBuffer(renderer->device, &transfer_buffer_create_info);
+    if (!transfer_buffer) {
+        SDL_ReleaseGPUTexture(renderer->device, texture);
+        return 0;
+    }
+
+    void* transfer_data = SDL_MapGPUTransferBuffer(renderer->device, transfer_buffer, true);
+
+    if (!transfer_data) {
+        SDL_ReleaseGPUTransferBuffer(renderer->device, transfer_buffer);
+        SDL_ReleaseGPUTexture(renderer->device, texture);
+        return 0;
+    }
+
+    memcpy(transfer_data, rgba_data, width * height * 4);
+
+    SDL_UnmapGPUTransferBuffer(renderer->device, transfer_buffer);
+
+    SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(renderer->device);
+    SDL_GPUCopyPass* copy_pass = SDL_BeginGPUCopyPass(cmd);
+
+    SDL_GPUTextureTransferInfo transfer_info = {
+        .offset = 0,
+        .pixels_per_row = width,
+        .rows_per_layer = height,
+        .transfer_buffer = transfer_buffer,
+    };
+
+    SDL_GPUTextureRegion region = {
+        .w = width,
+        .h = height,
+        .d = 1,
+        .texture = texture,
+    };
+
+    SDL_UploadToGPUTexture(copy_pass, &transfer_info, &region, true);
+
+    SDL_EndGPUCopyPass(copy_pass);
+    SDL_SubmitGPUCommandBuffer(cmd);
+
+    SDL_ReleaseGPUTransferBuffer(renderer->device, transfer_buffer);
+
+    TextureResource* texture_resource = &renderer->texture_storage.textures[renderer->texture_storage.count++];
+    texture_resource->handle = renderer->texture_storage.count;
+    texture_resource->texture = texture;
+
+    return texture_resource->handle;
+}
 
 void renderer_play_draw_list(Renderer* renderer, DrawList* draw_list)
 {
@@ -310,7 +401,7 @@ void renderer_play_draw_list(Renderer* renderer, DrawList* draw_list)
     glm_vec3_make(draw_list->camera.position.items, eye);
     glm_vec3_make(draw_list->camera.target.items, center);
 
-    glm_lookat(eye, center, (vec3){0.0f, 1.0f, 0.0f}, view_matrix);
+    glm_lookat(eye, center, (vec3) { 0.0f, 1.0f, 0.0f }, view_matrix);
 
     glm_mul(renderer->projection_matrix, view_matrix, vertex_uniforms.proj_view_matrix);
 
@@ -322,6 +413,7 @@ void renderer_play_draw_list(Renderer* renderer, DrawList* draw_list)
         switch (cmd->type) {
         case DRAW_MESH: {
             MeshHandle mesh_handle = cmd->as.draw_mesh.mesh;
+            TextureHandle texture_handle = cmd->as.draw_mesh.texture;
             Transform transform = cmd->as.draw_mesh.transform;
 
             vec3 scale;
@@ -334,33 +426,42 @@ void renderer_play_draw_list(Renderer* renderer, DrawList* draw_list)
             glm_vec3_copy(transform.position.items, translation);
 
             glm_mat4_identity(vertex_uniforms.model_matrix);
-            glm_scale(vertex_uniforms.model_matrix, scale);
-            glm_quat_rotate(vertex_uniforms.model_matrix, rotation, vertex_uniforms.model_matrix);
             glm_translate(vertex_uniforms.model_matrix, translation);
+            glm_quat_rotate(vertex_uniforms.model_matrix, rotation, vertex_uniforms.model_matrix);
+            glm_scale(vertex_uniforms.model_matrix, scale);
 
             if (mesh_handle == 0 || mesh_handle > renderer->mesh_storage.count) {
                 log_err("DrawMesh: Invalid MeshHandle");
                 continue;
             }
 
-            MeshResource* mesh = &renderer->mesh_storage.meshes[mesh_handle - 1];
+            MeshResource* mesh_resource = &renderer->mesh_storage.meshes[mesh_handle - 1];
+            TextureResource* texture_resource = &renderer->texture_storage.textures[texture_handle - 1];
 
             SDL_GPUBufferBinding vertex_buffer_bindings = {
-                .buffer = mesh->vertex_buffer,
+                .buffer = mesh_resource->vertex_buffer,
                 .offset = 0,
             };
 
             SDL_BindGPUVertexBuffers(render_pass, 0, &vertex_buffer_bindings, 1);
 
             SDL_GPUBufferBinding index_buffer_bindings = {
-                .buffer = mesh->index_buffer,
+                .buffer = mesh_resource->index_buffer,
                 .offset = 0,
             };
 
             SDL_BindGPUIndexBuffer(render_pass, &index_buffer_bindings, SDL_GPU_INDEXELEMENTSIZE_16BIT);
 
             SDL_PushGPUVertexUniformData(command_buffer, 0, &vertex_uniforms, sizeof(vertex_uniforms));
-            SDL_DrawGPUIndexedPrimitives(render_pass, mesh->indices_count, 1, 0, 0, 0);
+
+            SDL_GPUTextureSamplerBinding binding = {
+                .texture = texture_resource->texture,
+                .sampler = renderer->texture_sampler,
+            };
+
+            SDL_BindGPUFragmentSamplers(render_pass, 0, &binding, 1);
+
+            SDL_DrawGPUIndexedPrimitives(render_pass, mesh_resource->indices_count, 1, 0, 0, 0);
         } break;
         }
     }

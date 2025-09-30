@@ -258,7 +258,7 @@ CharacterController* create_character_controller(PhysicsWorld* physics_world, Ch
     character_settings.mMass = create_info->mass;
     character_settings.mMaxStrength = create_info->max_strength;
 
-    character_settings.mShape = JPH::CapsuleShapeSettings(0.3f, 0.9f).Create().Get();
+    character_settings.mShape = JPH::CapsuleShapeSettings(0.4f, 0.3f).Create().Get();
 
     // Manually call the constructor
     new (&controller->character_virtual) JPH::CharacterVirtual(&character_settings, JPH::RVec3(0, 2, 0), JPH::Quat::sIdentity(), &physics_world->physics_system);
@@ -327,8 +327,8 @@ BodyID create_convex_hull_static_collider(PhysicsWorld* physics_world, MeshData*
     auto* vertices = PushArray(arena, JPH::Vec3, mesh->vertices_count);
 
     for (size_t i = 0; i < mesh->vertices_count; i++) {
-        Vector3* vertex = &mesh->vertices[i];
-        vertices[i] = JPH::Vec3(vertex->x, vertex->y, vertex->z);
+        Vertex* vertex = &mesh->vertices[i];
+        vertices[i] = to_jph_vec3(vertex->position);
     }
 
     JPH::ConvexHullShapeSettings settings(vertices, (int)mesh->vertices_count);
@@ -344,7 +344,7 @@ BodyID create_convex_hull_static_collider(PhysicsWorld* physics_world, MeshData*
 
     JPH::BodyCreationSettings body_settings(
         result.Get(),
-        JPH::RVec3(0, 10, 0),
+        JPH::RVec3(0, 0, 0),
         JPH::Quat::sIdentity(),
         JPH::EMotionType::Static,
         Layers::NON_MOVING);

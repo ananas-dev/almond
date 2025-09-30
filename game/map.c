@@ -273,11 +273,15 @@ static void parse_entity(Parser* parser)
 
                 plane->material = token.value;
 
-                parse_number(parser);
-                parse_number(parser);
-                parse_number(parser);
-                parse_number(parser);
-                parse_number(parser);
+                float x_offset = parse_number(parser);
+                float y_offset = parse_number(parser);
+                plane->offset = VEC2(x_offset, y_offset);
+
+                plane->rotation = parse_number(parser);
+
+                float scale_x = parse_number(parser);
+                float scale_y = parse_number(parser);
+                plane->scale = VEC2(scale_x, scale_y);
 
                 Lexer checkpoint = parser->lexer;
 

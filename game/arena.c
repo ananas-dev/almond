@@ -61,6 +61,8 @@ void* arena_realloc(Arena* arena, void* ptr, size_t old_size, size_t new_size, i
 
     void* new_ptr = arena_push(arena, new_size, alignment);
     memcpy(new_ptr, ptr, old_size);
+
+    return new_ptr;
 }
 
 void arena_clear(Arena* arena)
