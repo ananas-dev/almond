@@ -100,7 +100,7 @@ GAME_ITERATE(game_iterate)
         game_state->camera_pitch = -30.0f; // Look down slightly
         game_state->camera_distance = 10.0f;
 
-        game_state->test_texture = load_texture("rock_1.png", api);
+        game_state->test_texture = load_texture("wall.png", api);
 
         memory->is_initialized = true;
     }

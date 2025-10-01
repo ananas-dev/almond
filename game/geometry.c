@@ -52,12 +52,12 @@ static uint16_t unit_cube_faces[6][4] = {
 };
 
 static Vector3 unit_cube_normals[6] = {
-    { { 0.0f, 0.0f, 1.0f } },   // Top (z = 0.5)
-    { { 0.0f, 0.0f, -1.0f } },  // Bottom (z = -0.5)
-    { { -1.0f, 0.0f, 0.0f } },  // Left (x = -0.5)
-    { { 1.0f, 0.0f, 0.0f } },   // Right (x = 0.5)
-    { { 0.0f, -1.0f, 0.0f } },  // Front (y = -0.5)
-    { { 0.0f, 1.0f, 0.0f } }    // Back (y = 0.5)
+    { { 0.0f, 0.0f, 1.0f } }, // Top (z = 0.5)
+    { { 0.0f, 0.0f, -1.0f } }, // Bottom (z = -0.5)
+    { { -1.0f, 0.0f, 0.0f } }, // Left (x = -0.5)
+    { { 1.0f, 0.0f, 0.0f } }, // Right (x = 0.5)
+    { { 0.0f, -1.0f, 0.0f } }, // Front (y = -0.5)
+    { { 0.0f, 1.0f, 0.0f } } // Back (y = 0.5)
 };
 
 Polygon* push_polygon(Polyhedron* polyhedron)
@@ -73,55 +73,157 @@ static Vector3 snap_to_grid(Vector3 vertex, float grid_size)
         roundf(vertex.z / grid_size) * grid_size);
 }
 
+// 3x3 Matrix for rotation and transformation
+typedef struct {
+    float m[3][3];
+} Matrix3;
+
+// Create a 3x3 identity matrix
+static Matrix3 matrix3_identity()
+{
+    Matrix3 out = { { { 1, 0, 0 },
+        { 0, 1, 0 },
+        { 0, 0, 1 } } };
+    return out;
+}
+
+// Create a 3x3 rotation matrix given an axis and angle (right-handed, angle in radians)
+// Rodrigues' rotation formula
+static Matrix3 matrix3_axis_angle(Vector3 axis, float angle)
+{
+    axis = vector3_normalize(axis);
+    float x = axis.x, y = axis.y, z = axis.z;
+    float c = cosf(angle);
+    float s = sinf(angle);
+    float t = 1.0f - c;
+
+    Matrix3 out;
+    out.m[0][0] = c + x * x * t;
+    out.m[0][1] = x * y * t - z * s;
+    out.m[0][2] = x * z * t + y * s;
+
+    out.m[1][0] = y * x * t + z * s;
+    out.m[1][1] = c + y * y * t;
+    out.m[1][2] = y * z * t - x * s;
+
+    out.m[2][0] = z * x * t - y * s;
+    out.m[2][1] = z * y * t + x * s;
+    out.m[2][2] = c + z * z * t;
+
+    return out;
+}
+
+// Transform a vector by a 3x3 matrix
+static Vector3 matrix3_transform(Matrix3 m, Vector3 v)
+{
+    Vector3 out;
+    out.x = m.m[0][0] * v.x + m.m[0][1] * v.y + m.m[0][2] * v.z;
+    out.y = m.m[1][0] * v.x + m.m[1][1] * v.y + m.m[1][2] * v.z;
+    out.z = m.m[2][0] * v.x + m.m[2][1] * v.y + m.m[2][2] * v.z;
+    return out;
+}
+
+static Vector3 base_axis[6][3] = {
+    { { 0, 0, 1 }, { 1, 0, 0 }, { 0, -1, 0 } }, // floor
+    { { 0, 0, -1 }, { 1, 0, 0 }, { 0, -1, 0 } }, // ceiling
+    { { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, -1 } }, // west wall
+    { { -1, 0, 0 }, { 0, 1, 0 }, { 0, 0, -1 } }, // east wall
+    { { 0, 1, 0 }, { 1, 0, 0 }, { 0, 0, -1 } }, // south wall
+    { { 0, -1, 0 }, { 1, 0, 0 }, { 0, 0, -1 } } // north wall
+};
+
+static void calculate_rotated_uv(
+    Vector3 normal,
+    Vector3 u_axis_in,
+    Vector3 v_axis_in,
+    float xscale,
+    float yscale,
+    float rotation_deg,
+    Vector3* u_axis_out,
+    Vector3* v_axis_out)
+{
+    // 1. Scale - preserve the sign for flipping
+    Vector3 scaled_u = vector3_scale(u_axis_in, 1.0f / xscale);
+    Vector3 scaled_v = vector3_scale(v_axis_in, 1.0f / yscale);
+
+    // 2. Rotation axis is the dominant axis of the normal
+    Vector3 rotation_axis;
+    Vector3 abs_n = vector3_abs(normal);
+    if (abs_n.x > abs_n.y && abs_n.x > abs_n.z)
+        rotation_axis = VEC3(1, 0, 0);
+    else if (abs_n.y > abs_n.z)
+        rotation_axis = VEC3(0, 1, 0);
+    else
+        rotation_axis = VEC3(0, 0, 1);
+
+    // 3. Apply rotation (if any)
+    if (fabsf(rotation_deg) > 0.001f) {
+        float rotation_rad = rotation_deg * (float)M_PI / 180.0f;
+        Matrix3 rotmat = matrix3_axis_angle(rotation_axis, rotation_rad);
+        *u_axis_out = matrix3_transform(rotmat, scaled_u);
+        *v_axis_out = matrix3_transform(rotmat, scaled_v);
+    } else {
+        *u_axis_out = scaled_u;
+        *v_axis_out = scaled_v;
+    }
+}
+
+static Vector2 calculate_uv(
+    Vector3 vertex,
+    float xshift, float yshift,
+    float tex_width, float tex_height,
+    Vector3 u_axis, Vector3 v_axis)
+{
+    float u = vector3_dot(vertex, u_axis) + xshift;
+    float v = vector3_dot(vertex, v_axis) + yshift;
+    u /= tex_width;
+    v /= tex_height;
+    return VEC2(u, v);
+}
+
 // O(n)
 static int find_or_insert_vertex(MeshData* mesh, Vector3 position, TexInfo tex_info, Vector3 normal)
 {
     Vector3 snapped_position = snap_to_grid(position, GRID_SIZE);
 
-    for (size_t i = 0; i < mesh->vertices_count; i++) {
-        if (vector3_eq(mesh->vertices[i].position, snapped_position, DISTEPSILON)) {
-            return (int)i;
-        }
-    }
+    // for (size_t i = 0; i < mesh->vertices_count; i++) {
+    //     if (vector3_eq(mesh->vertices[i].position, snapped_position, DISTEPSILON)) {
+    //         return (int)i;
+    //     }
+    // }
 
     int index = (int)mesh->vertices_count;
 
-    // Choose initial U and V axes perpendicular to normal
-    Vector3 u_axis, v_axis;
-
-    // Find the axis most aligned with the normal
-    if (fabsf(normal.x) > fabsf(normal.y) && fabsf(normal.x) > fabsf(normal.z)) {
-        // Normal mostly along X, use Y-Z plane
-        u_axis = VEC3(0, 1, 0);
-    } else if (fabsf(normal.y) > fabsf(normal.z)) {
-        // Normal mostly along Y, use X-Z plane
-        u_axis = VEC3(1, 0, 0);
-    } else {
-        // Normal mostly along Z, use X-Y plane
-        u_axis = VEC3(1, 0, 0);
+    // Find best axis
+    float best_dot = -1.0f;
+    int bestaxis = 0;
+    for (int i = 0; i < 6; i++) {
+        float dot = vector3_dot(normal, base_axis[i][0]);
+        if (dot > best_dot) {
+            best_dot = dot;
+            bestaxis = i;
+        }
     }
 
-    // Make u_axis perpendicular to normal
-    u_axis = vector3_normalize(vector3_cross(u_axis, normal));
-    v_axis = vector3_cross(normal, u_axis);
+    Vector3 u_axis = base_axis[bestaxis][1];
+    Vector3 v_axis = base_axis[bestaxis][2];
 
-    // Apply rotation (if rotation angle is non-zero)
-    float rotation = 0.0f; // Third value in the format (0 0 0 1 1)
-    if (rotation != 0.0f) {
-        // Rotate u_axis and v_axis around the normal
-        // (rotation matrix code here)
-    }
+    Vector3 rotated_u, rotated_v;
+    calculate_rotated_uv(
+        normal,
+        u_axis, v_axis,
+        tex_info.scale.u, tex_info.scale.v,
+        tex_info.rotation,
+        &rotated_u, &rotated_v);
 
-    // Apply scale
-    u_axis = vector3_scale(u_axis, 1.0f / tex_info.scale.u);
-    v_axis = vector3_scale(v_axis, 1.0f / tex_info.scale.v);
-
-    // FIXME: Un-hardcode texture size
-    float u = vector3_dot(snapped_position, u_axis) / 32.0f + tex_info.offset.u;
-    float v = vector3_dot(snapped_position, v_axis) / 32.0f + tex_info.offset.v;
+    Vector2 uv = calculate_uv(
+        snapped_position,
+        tex_info.offset.u, tex_info.offset.v,
+        32.0f, 32.0f,
+        rotated_u, rotated_v);
 
     mesh->vertices[index].position = snapped_position;
-    mesh->vertices[index].texcoords = VEC2(u, v);
+    mesh->vertices[index].texcoords = uv;
     mesh->vertices_count++;
 
     return index;

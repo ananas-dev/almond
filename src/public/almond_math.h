@@ -103,6 +103,14 @@ static inline Vector3 vector3_normalize(Vector3 v)
         v.z / length);
 }
 
+static inline Vector3 vector3_abs(Vector3 v)
+{
+    return VEC3(
+        fabsf(v.x),
+        fabsf(v.y),
+        fabsf(v.z));
+}
+
 static inline Vector3 vector3_scale(Vector3 v, float scale)
 {
     return VEC3(

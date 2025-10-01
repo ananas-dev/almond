@@ -93,7 +93,7 @@ bool renderer_init(Renderer* renderer, SDL_Window* window)
 
     pipeline_create_info.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
 
-    // pipeline_create_info.multisample_state.sample_count = SDL_GPU_SAMPLECOUNT_4;
+    pipeline_create_info.multisample_state.sample_count = SDL_GPU_SAMPLECOUNT_4;
 
     SDL_GPUDepthStencilState depth_stencil_state = {
         .compare_op = SDL_GPU_COMPAREOP_LESS,
@@ -130,7 +130,7 @@ bool renderer_init(Renderer* renderer, SDL_Window* window)
         .width = width,
         .height = height,
         .usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET,
-        .sample_count = SDL_GPU_SAMPLECOUNT_1,
+        .sample_count = SDL_GPU_SAMPLECOUNT_4,
     };
 
     renderer->depth_texture = SDL_CreateGPUTexture(renderer->device, &depth_texture_create_info);
@@ -139,10 +139,22 @@ bool renderer_init(Renderer* renderer, SDL_Window* window)
         SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Failed to create depth texture: %s", SDL_GetError());
     }
 
+    SDL_GPUTextureCreateInfo msaa_texture_info = {
+        .type = SDL_GPU_TEXTURETYPE_2D,
+        .format = SDL_GetGPUSwapchainTextureFormat(renderer->device, renderer->window),
+        .usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET,
+        .width = width,
+        .height = height,
+        .layer_count_or_depth = 1,
+        .num_levels = 1,
+        .sample_count = SDL_GPU_SAMPLECOUNT_4,
+    };
+    renderer->msaa_texture = SDL_CreateGPUTexture(renderer->device, &msaa_texture_info);
+
     SDL_GPUSamplerCreateInfo sampler_info = {
-        .min_filter = SDL_GPU_FILTER_LINEAR,
-        .mag_filter = SDL_GPU_FILTER_LINEAR,
-        .mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_LINEAR,
+        .min_filter = SDL_GPU_FILTER_NEAREST,
+        .mag_filter = SDL_GPU_FILTER_NEAREST,
+        .mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_NEAREST,
         .address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_REPEAT,
         .address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_REPEAT,
         .address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_REPEAT,
@@ -372,13 +384,14 @@ void renderer_play_draw_list(Renderer* renderer, DrawList* draw_list)
     };
 
     SDL_GPUColorTargetInfo color_target_info = {
-        .texture = swapchain_texture,
+        .texture = renderer->msaa_texture,
         .mip_level = 0,
         .layer_or_depth_plane = 0,
         .clear_color = clear_color,
         .load_op = SDL_GPU_LOADOP_CLEAR,
-        .store_op = SDL_GPU_STOREOP_STORE,
-        .cycle = false,
+        .store_op = SDL_GPU_STOREOP_RESOLVE,
+        .resolve_texture = swapchain_texture,
+        .cycle = true,
     };
 
     SDL_GPUDepthStencilTargetInfo depth_info = {

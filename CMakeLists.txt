@@ -73,6 +73,7 @@ add_library(game SHARED
         game/gltf_loader.h
         game/shapes.c
         game/shapes.h
+        src/public/almond_math.h
 )
 
 target_include_directories(almond PRIVATE vendor)

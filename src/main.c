@@ -143,7 +143,7 @@ int main(int argc, char* argv[])
         float dt = (float)(current_ticks - last_ticks) / 1000.0f;
 
         // Scoobydoo hack to iterate over all buttons
-        for (int i = 0; i < sizeof(input.buttons) / sizeof(GameButtonState); i++) {
+        for (size_t i = 0; i < sizeof(input.buttons) / sizeof(GameButtonState); i++) {
             input.buttons[i].half_transition_count = 0;
         }
 

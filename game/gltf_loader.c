@@ -64,7 +64,7 @@ MeshData load_first_mesh_from_gltf(const char* path, Arena* arena) {
     output_mesh.vertices_count = positions->data->count;
     output_mesh.vertices = PushArray(arena, Vertex, output_mesh.vertices_count);
 
-    for (int i = 0; i < output_mesh.vertices_count; i++) {
+    for (size_t i = 0; i < output_mesh.vertices_count; i++) {
         Vertex* vertex = &output_mesh.vertices[i];
 
         cgltf_accessor_read_float(positions->data, i, vertex->position.items, 3);
@@ -76,7 +76,7 @@ MeshData load_first_mesh_from_gltf(const char* path, Arena* arena) {
     output_mesh.indices_count = primitive.indices->count;
     output_mesh.indices = PushArray(arena, uint16_t, output_mesh.indices_count);
 
-    for (int i = 0; i < output_mesh.indices_count; i++) {
+    for (size_t i = 0; i < output_mesh.indices_count; i++) {
         output_mesh.indices[i] = cgltf_accessor_read_index(primitive.indices, i);
     }
 

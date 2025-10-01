@@ -34,6 +34,7 @@ typedef struct {
     SDL_Window* window;
 
     SDL_GPUTexture* depth_texture;
+    SDL_GPUTexture* msaa_texture;
 
     SDL_GPUGraphicsPipeline* graphics_pipeline;
     SDL_GPUGraphicsPipeline* debug_collider_pipeline;
