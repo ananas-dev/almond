@@ -1,6 +1,5 @@
 cmake_minimum_required(VERSION 3.30)
-project(Almond C CXX)
-
+project(Almond CXX)
 
 include(FetchContent)
 
@@ -40,9 +39,16 @@ FetchContent_Declare(
         GIT_TAG release-3.2.22
 )
 
+FetchContent_Declare(
+        glm
+        GIT_REPOSITORY https://github.com/g-truc/glm.git
+        GIT_TAG 1.0.1
+)
+
+FetchContent_MakeAvailable(glm)
+
 FetchContent_MakeAvailable(SDL3)
 
-set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
 add_compile_options(
@@ -51,27 +57,27 @@ add_compile_options(
 )
 
 add_executable(almond
-        src/main.c
-        src/logger.c
-        src/renderer.c
-        src/arena_linux.c
+        src/main.cpp
+        src/logger.cpp
+        src/renderer.cpp
+        src/arena_linux.cpp
         src/public/almond.h
-        src/file_watcher.c
+        src/file_watcher.cpp
 )
 
 add_library(game SHARED
-        game/game.c
-        game/texture.c
-        game/map.c
-        game/geometry.c
+        game/game.cpp
+        game/texture.cpp
+        game/map.cpp
+        game/geometry.cpp
         game/geometry.h
-        game/arena.c
-        game/render_commands.c
+        game/arena.cpp
+        game/render_commands.cpp
         game/physics.cpp
         game/physics.h
-        game/gltf_loader.c
+        game/gltf_loader.cpp
         game/gltf_loader.h
-        game/shapes.c
+        game/shapes.cpp
         game/shapes.h
         src/public/almond_math.h
 )
@@ -80,6 +86,6 @@ target_include_directories(almond PRIVATE vendor)
 
 target_include_directories(game PUBLIC ${JoltPhysics_SOURCE_DIR}/..)
 target_include_directories(game PRIVATE src/public vendor)
-target_link_libraries(game PRIVATE Jolt)
+target_link_libraries(game PRIVATE Jolt glm::glm)
 
-target_link_libraries(almond PRIVATE SDL3::SDL3 m)
+target_link_libraries(almond PRIVATE SDL3::SDL3 m glm::glm)

@@ -3,8 +3,9 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <glm/glm.hpp>
 
-#include "almond_math.h"
+// #include "almond_math.h"
 
 typedef struct {
     const char* data;
@@ -19,7 +20,7 @@ typedef uint32_t TextureHandle;
 typedef uint32_t MaterialHandle;
 
 typedef struct {
-    Vector3 position;
+    position;
     Vector3 target;
     float yaw;
     float pitch;
