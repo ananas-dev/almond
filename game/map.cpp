@@ -1,34 +1,33 @@
 #include "map.h"
 
+#include "string_view.h"
+
 #include "geometry.h"
 #include <almond.h>
 #include <assert.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
-typedef struct {
+struct Lexer {
     const char* data;
     size_t current;
     size_t start;
-} Lexer;
+};
 
-typedef enum {
-    TOKEN_STRING,
-    TOKEN_NUMBER,
-    TOKEN_IDENTIFIER,
-    TOKEN_LEFT_PAREN,
-    TOKEN_RIGHT_PAREN,
-    TOKEN_LEFT_BRACE,
-    TOKEN_RIGHT_BRACE,
-    TOKEN_EOF,
-    TOKEN_ERROR,
-} TokenKind;
+enum class TokenKind {
+    String,
+    Number,
+    Identifier,
+    LeftParen,
+    RightParen,
+    LeftBrace,
+    RightBrace,
+    Eof,
+    Error,
+};
 
-typedef struct {
-    TokenKind kind;
+struct Token {
+    TokenKind kind = TokenKind::Error;
     StringView value;
-} Token;
+};
 
 static bool is_eof(Lexer* lexer)
 {
@@ -111,7 +110,7 @@ Token lexer_next(Lexer* lexer)
 {
     skip_whitespaces(lexer);
     if (is_eof(lexer))
-        return make_token(lexer, TOKEN_EOF);
+        return make_token(lexer, TokenKind::Eof);
 
     lexer->start = lexer->current;
 
@@ -119,20 +118,20 @@ Token lexer_next(Lexer* lexer)
 
     switch (c) {
     case '(':
-        return make_token(lexer, TOKEN_LEFT_PAREN);
+        return make_token(lexer, TokenKind::LeftParen);
     case ')':
-        return make_token(lexer, TOKEN_RIGHT_PAREN);
+        return make_token(lexer, TokenKind::RightParen);
     case '{':
-        return make_token(lexer, TOKEN_LEFT_BRACE);
+        return make_token(lexer, TokenKind::LeftBrace);
     case '}':
-        return make_token(lexer, TOKEN_RIGHT_BRACE);
+        return make_token(lexer, TokenKind::RightBrace);
     case '"': {
         while (consume_char(lexer) != '"') {
             if (is_eof(lexer))
-                return make_token(lexer, TOKEN_EOF);
+                return make_token(lexer, TokenKind::Eof);
         }
 
-        return make_token(lexer, TOKEN_STRING);
+        return make_token(lexer, TokenKind::String);
     }
     default: {
         if (is_decimal(c) || c == '-') {
@@ -146,18 +145,18 @@ Token lexer_next(Lexer* lexer)
                     consume_char(lexer);
             }
 
-            return make_token(lexer, TOKEN_NUMBER);
+            return make_token(lexer, TokenKind::Number);
         }
 
         if (is_alpha(c)) {
             while (is_alphanum(peek_char(lexer)))
                 consume_char(lexer);
-            return make_token(lexer, TOKEN_IDENTIFIER);
+            return make_token(lexer, TokenKind::Identifier);
         }
     } break;
     }
 
-    return make_token(lexer, TOKEN_ERROR);
+    return make_token(lexer, TokenKind::Error);
 }
 
 typedef struct {
@@ -175,27 +174,16 @@ static float parse_number(Parser* parser)
 {
     Token token = lexer_next(&parser->lexer);
 
-    if (token.kind != TOKEN_NUMBER) {
+    if (token.kind != TokenKind::Number) {
         assert(false && "Expected number");
     }
 
-    // Avoid bloating the stack
-    if (token.value.count > 64) {
-        assert(false && "String too long");
-    }
-
-    char number_str[token.value.count + 1];
-    memcpy(number_str, token.value.data, token.value.count);
-    number_str[token.value.count] = '\0';
-
-    float number = (float)strtod(number_str, nullptr);
-
-    return number;
+    return token.value.to_float();
 }
 
 static glm::vec3 parse_vector3(Parser* parser)
 {
-    if (lexer_next(&parser->lexer).kind != TOKEN_LEFT_PAREN) {
+    if (lexer_next(&parser->lexer).kind != TokenKind::LeftParen) {
         assert(false && "Missing opening paren");
     }
 
@@ -204,7 +192,7 @@ static glm::vec3 parse_vector3(Parser* parser)
     vec.y = parse_number(parser);
     vec.z = parse_number(parser);
 
-    if (lexer_next(&parser->lexer).kind != TOKEN_RIGHT_PAREN) {
+    if (lexer_next(&parser->lexer).kind != TokenKind::RightParen) {
         assert(false && "Missing closing paren");
     }
 
@@ -222,28 +210,25 @@ static void parse_entity(Parser* parser)
     for (;;) {
         Token token = lexer_next(&parser->lexer);
 
-        if (token.kind == TOKEN_EOF) {
+        if (token.kind == TokenKind::Eof) {
             break;
         }
 
-        if (token.kind == TOKEN_STRING) {
-            if (token.value.count <= 2) {
+        if (token.kind == TokenKind::String) {
+            if (token.value.length <= 2) {
                 continue;
             }
 
             Token value_token = lexer_next(&parser->lexer);
 
-            if (value_token.kind != TOKEN_STRING) {
+            if (value_token.kind != TokenKind::String) {
                 assert(false && "Malformed metadata");
             }
 
-            if (token.value.count - 2 == sizeof("classname") - 1 && memcmp("classname", token.value.data + 1, token.value.count - 2) == 0) {
-                entity->classname = value_token.value.data + 1;
-                entity->classname_size = value_token.value.count - 2;
+            if (token.value == R"("classname")"_sv) {
+                entity->classname = value_token.value.substring(0, value_token.value.length - 1);
             }
-
-            // printf("%.*s: %.*s\n", (int)token.size, token.value, (int)value_token.size, value_token.value);
-        } else if (token.kind == TOKEN_LEFT_BRACE) {
+        } else if (token.kind == TokenKind::LeftBrace) {
             if (entity->brushes_count == 100) {
                 assert(false);
             }
@@ -267,11 +252,11 @@ static void parse_entity(Parser* parser)
 
                 Token material = lexer_next(&parser->lexer);
 
-                if (material.kind != TOKEN_IDENTIFIER) {
+                if (material.kind != TokenKind::Identifier) {
                     assert(false);
                 }
 
-                plane->material = token.value;
+                // plane->material = token.value;
 
                 float x_offset = parse_number(parser);
                 float y_offset = parse_number(parser);
@@ -285,13 +270,13 @@ static void parse_entity(Parser* parser)
 
                 Lexer checkpoint = parser->lexer;
 
-                if (lexer_next(&parser->lexer).kind == TOKEN_RIGHT_BRACE) {
+                if (lexer_next(&parser->lexer).kind == TokenKind::RightBrace) {
                     break;
                 };
 
                 parser->lexer = checkpoint;
             }
-        } else if (token.kind == TOKEN_RIGHT_BRACE) {
+        } else if (token.kind == TokenKind::RightBrace) {
             break;
         }
     }
@@ -305,7 +290,7 @@ static void parse(Parser* parser)
 {
     Token token = lexer_next(&parser->lexer);
 
-    while (token.kind == TOKEN_LEFT_BRACE) {
+    while (token.kind == TokenKind::LeftBrace) {
         parse_entity(parser);
         token = lexer_next(&parser->lexer);
     }

@@ -177,12 +177,12 @@ MeshHandle renderer_create_mesh(Renderer* renderer, MeshData* mesh_data)
 {
     if (renderer->mesh_storage.capacity <= renderer->mesh_storage.count) {
         log_err("Mesh storage full");
-        return 0;
+        return MeshHandle::invalid();
     }
 
     if (mesh_data->indices_count == 0 || mesh_data->vertices_count == 0) {
         log_err("Empty mesh");
-        return 0;
+        return MeshHandle::invalid();
     }
 
     Uint32 vertices_size = mesh_data->vertices_count * sizeof(*mesh_data->vertices);
@@ -196,14 +196,14 @@ MeshHandle renderer_create_mesh(Renderer* renderer, MeshData* mesh_data)
     SDL_GPUTransferBuffer* transfer_buffer = SDL_CreateGPUTransferBuffer(renderer->device, &transfer_info);
     if (!transfer_buffer) {
         log_err("%s", SDL_GetError());
-        return 0;
+        return MeshHandle::invalid();
     }
 
     uint8_t* transfer_data = (uint8_t*)SDL_MapGPUTransferBuffer(renderer->device, transfer_buffer, false);
     if (!transfer_data) {
         log_err("%s", SDL_GetError());
         SDL_ReleaseGPUTransferBuffer(renderer->device, transfer_buffer);
-        return 0;
+        return MeshHandle::invalid();
     }
 
     memcpy(transfer_data, mesh_data->vertices, vertices_size);
@@ -215,14 +215,14 @@ MeshHandle renderer_create_mesh(Renderer* renderer, MeshData* mesh_data)
     if (!command_buffer) {
         log_err("%s", SDL_GetError());
         SDL_ReleaseGPUTransferBuffer(renderer->device, transfer_buffer);
-        return 0;
+        return MeshHandle::invalid();
     }
 
     SDL_GPUCopyPass* copy_pass = SDL_BeginGPUCopyPass(command_buffer);
     if (!copy_pass) {
         log_err("%s", SDL_GetError());
         SDL_ReleaseGPUTransferBuffer(renderer->device, transfer_buffer);
-        return 0;
+        return MeshHandle::invalid();
     }
 
     SDL_GPUBufferCreateInfo vertex_buffer_create_info = {
@@ -235,7 +235,7 @@ MeshHandle renderer_create_mesh(Renderer* renderer, MeshData* mesh_data)
         log_err("%s", SDL_GetError());
         SDL_EndGPUCopyPass(copy_pass);
         SDL_ReleaseGPUTransferBuffer(renderer->device, transfer_buffer);
-        return 0;
+        return MeshHandle::invalid();
     }
 
     SDL_GPUTransferBufferLocation vertex_buffer_location = {
@@ -262,7 +262,7 @@ MeshHandle renderer_create_mesh(Renderer* renderer, MeshData* mesh_data)
         SDL_ReleaseGPUBuffer(renderer->device, vertex_buffer);
         SDL_EndGPUCopyPass(copy_pass);
         SDL_ReleaseGPUTransferBuffer(renderer->device, transfer_buffer);
-        return 0;
+        return MeshHandle::invalid();
     }
 
     SDL_GPUTransferBufferLocation index_buffer_location = {
@@ -284,13 +284,14 @@ MeshHandle renderer_create_mesh(Renderer* renderer, MeshData* mesh_data)
     SDL_ReleaseGPUTransferBuffer(renderer->device, transfer_buffer);
 
     MeshResource* mesh_resource = &renderer->mesh_storage.meshes[renderer->mesh_storage.count++];
-    mesh_resource->handle = renderer->mesh_storage.count;
+    mesh_resource->handle = MeshHandle(renderer->mesh_storage.count);
     mesh_resource->vertex_buffer = vertex_buffer;
     mesh_resource->index_buffer = index_buffer;
     mesh_resource->indices_count = mesh_data->indices_count;
 
     return mesh_resource->handle;
 }
+
 TextureHandle renderer_create_texture(Renderer* renderer, const uint8_t* rgba_data, uint32_t width, uint32_t height)
 {
     SDL_GPUTextureCreateInfo texture_create_info = {};
@@ -306,7 +307,7 @@ TextureHandle renderer_create_texture(Renderer* renderer, const uint8_t* rgba_da
     SDL_GPUTexture* texture = SDL_CreateGPUTexture(renderer->device, &texture_create_info);
     if (!texture) {
         log_err("%", SDL_GetError());
-        return 0;
+        return TextureHandle::invalid();
     }
 
     SDL_GPUTransferBufferCreateInfo transfer_buffer_create_info = {
@@ -317,7 +318,7 @@ TextureHandle renderer_create_texture(Renderer* renderer, const uint8_t* rgba_da
     SDL_GPUTransferBuffer* transfer_buffer = SDL_CreateGPUTransferBuffer(renderer->device, &transfer_buffer_create_info);
     if (!transfer_buffer) {
         SDL_ReleaseGPUTexture(renderer->device, texture);
-        return 0;
+        return TextureHandle::invalid();
     }
 
     void* transfer_data = SDL_MapGPUTransferBuffer(renderer->device, transfer_buffer, true);
@@ -325,7 +326,7 @@ TextureHandle renderer_create_texture(Renderer* renderer, const uint8_t* rgba_da
     if (!transfer_data) {
         SDL_ReleaseGPUTransferBuffer(renderer->device, transfer_buffer);
         SDL_ReleaseGPUTexture(renderer->device, texture);
-        return 0;
+        return TextureHandle::invalid();
     }
 
     memcpy(transfer_data, rgba_data, width * height * 4);
@@ -357,7 +358,7 @@ TextureHandle renderer_create_texture(Renderer* renderer, const uint8_t* rgba_da
     SDL_ReleaseGPUTransferBuffer(renderer->device, transfer_buffer);
 
     TextureResource* texture_resource = &renderer->texture_storage.textures[renderer->texture_storage.count++];
-    texture_resource->handle = renderer->texture_storage.count;
+    texture_resource->handle = TextureHandle(renderer->texture_storage.count);
     texture_resource->texture = texture;
 
     return texture_resource->handle;
@@ -428,13 +429,18 @@ void renderer_play_draw_list(Renderer* renderer, DrawList* draw_list)
             vertex_uniforms.model_matrix = vertex_uniforms.model_matrix * glm::mat4_cast(transform.rotation);
             vertex_uniforms.model_matrix = glm::scale(vertex_uniforms.model_matrix, transform.scale);
 
-            if (mesh_handle == 0 || mesh_handle > renderer->mesh_storage.count) {
+            if (!mesh_handle.is_valid() || mesh_handle.value > renderer->mesh_storage.count) {
                 log_err("DrawMesh: Invalid MeshHandle");
                 continue;
             }
 
-            MeshResource* mesh_resource = &renderer->mesh_storage.meshes[mesh_handle - 1];
-            TextureResource* texture_resource = &renderer->texture_storage.textures[texture_handle - 1];
+            if (!texture_handle.is_valid() || texture_handle.value > renderer->mesh_storage.count) {
+                log_err("DrawMesh: Invalid TextureHandle");
+                continue;
+            }
+
+            MeshResource* mesh_resource = &renderer->mesh_storage.meshes[mesh_handle.value - 1];
+            TextureResource* texture_resource = &renderer->texture_storage.textures[texture_handle.value - 1];
 
             SDL_GPUBufferBinding vertex_buffer_bindings = {
                 .buffer = mesh_resource->vertex_buffer,

@@ -6,39 +6,46 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
-// #include "almond_math.h"
+// Lightweight handles
+template<typename Tag>
+struct Handle {
+    uint32_t value;
 
-typedef struct {
-    const char* data;
-    size_t count;
-} StringView;
+    explicit constexpr Handle(uint32_t v = 0) : value(v) {}
 
-#define SV(s) (StringView) { s,  sizeof(s) - 1 }
+    static constexpr Handle invalid() { return Handle(0); }
+    [[nodiscard]] constexpr bool is_valid() const { return value != 0; }
+    constexpr explicit operator bool() const { return is_valid(); }
 
-// Lightweights handles
-typedef uint32_t MeshHandle;
-typedef uint32_t TextureHandle;
-typedef uint32_t MaterialHandle;
+    constexpr bool operator==(Handle o) const { return value == o.value; }
+    constexpr bool operator!=(Handle o) const { return value != o.value; }
+};
 
-typedef struct {
+struct MeshTag {};
+struct TextureTag {};
+struct MaterialTag {};
+
+using MeshHandle = Handle<MeshTag>;
+using TextureHandle = Handle<TextureTag>;
+using MaterialHandle = Handle<MaterialTag>;
+
+struct Camera {
     glm::vec3 position;
     glm::vec3 target;
-    float yaw;
-    float pitch;
-} Camera;
+};
 
-typedef struct {
+struct Vertex {
     glm::vec3 position;
     glm::vec2 texcoords;
-} Vertex;
+};
 
-typedef struct {
+struct MeshData {
     Vertex* vertices;
     size_t vertices_count;
 
     uint16_t* indices;
     size_t indices_count;
-} MeshData;
+};
 
 typedef enum {
     TODO
@@ -56,12 +63,12 @@ typedef CREATE_TEXTURE(CreateTextureFn);
 #define CREATE_MATERIAL(name) MaterialHandle(name)(TextureHandle albedo, MaterialFlags flags)
 typedef CREATE_MATERIAL(CreateMaterialFn);
 
-typedef struct {
+struct Api {
     LoadEntireFileFn* load_entire_file;
     CreateMeshFn* create_mesh;
     CreateTextureFn* create_texture;
     CreateMaterialFn* create_material;
-} Api;
+};
 
 struct Transform {
     glm::vec3 position = glm::vec3(0.0f);
@@ -70,11 +77,12 @@ struct Transform {
 };
 
 enum class DrawCommandType {
+    Invalid,
     DrawMesh,
 };
 
-typedef struct {
-    DrawCommandType type;
+struct DrawCommand {
+    DrawCommandType type = DrawCommandType::Invalid;
     union {
         struct {
             MeshHandle mesh;
@@ -86,17 +94,17 @@ typedef struct {
             Transform transform;
         } debug_collider;
     } as;
-} DrawCommand;
+};
 
-typedef struct {
+struct DrawList {
     glm::vec4 clear_color;
     Camera camera;
     DrawCommand* commands;
     size_t count;
     size_t capacity;
-} DrawList;
+};
 
-typedef struct {
+struct GameMemory {
     bool is_initialized;
 
     size_t permanent_storage_size;
@@ -104,12 +112,12 @@ typedef struct {
 
     size_t transient_storage_size;
     void* transient_storage;
-} GameMemory;
+};
 
-typedef struct {
+struct GameButtonState {
     int half_transition_count;
     bool pressed;
-} GameButtonState;
+};
 
 typedef struct {
     bool is_gamepad;

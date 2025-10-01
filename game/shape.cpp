@@ -1,13 +1,15 @@
-#include "shapes.h"
 #include "list.h"
+#include "shape.h"
 
-MeshData make_capsule(float radius, float cylinder_half_height, int radial_segments, int rings, Arena* arena)
+namespace Shape {
+
+MeshData create_capsule(float radius, float cylinder_half_height, int radial_segments, int rings, Arena* arena)
 {
     List<glm::vec3, Arena> vertices(arena);
     List<uint16_t, Arena> indices(arena);
 
     // Top hemisphere
-   vertices.push(glm::vec3(0, cylinder_half_height + radius, 0));
+    vertices.push(glm::vec3(0, cylinder_half_height + radius, 0));
 
     for (int r = 1; r < rings; r++) {
         for (int s = 0; s < radial_segments; s++) {
@@ -76,4 +78,6 @@ MeshData make_capsule(float radius, float cylinder_half_height, int radial_segme
     }
 
     return mesh;
+}
+
 }

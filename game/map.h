@@ -1,10 +1,10 @@
 #pragma once
 
 #include "geometry.h"
+#include "string_view.h"
 
 typedef struct {
-  const char* classname;
-  size_t classname_size;
+  StringView classname;
   Brush* brushes;
   size_t brushes_count;
 } MapEntity;

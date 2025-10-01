@@ -5,11 +5,11 @@
 #include "map.h"
 #include "physics.h"
 #include "render_commands.h"
-#include "shapes.h"
+#include "shape.h"
 #include "texture.h"
 
-#include <math.h>
-#include <stdio.h>
+#include <cmath>
+#include <cstdio>
 
 typedef struct {
     Arena transient_arena;
@@ -95,7 +95,7 @@ extern "C" GAME_ITERATE(game_iterate)
         // MeshData character_mesh = load_first_mesh_from_gltf("./content/character.glb", &game_state->transient_arena);
         // game_state->character_mesh = api->create_mesh(&character_mesh);
 
-        MeshData capsule_mesh = make_capsule(0.3f, 0.4f, 12, 6, &game_state->transient_arena);
+        MeshData capsule_mesh = Shape::create_capsule(0.3f, 0.4f, 12, 6, &game_state->transient_arena);
         game_state->character_capsule_mesh = api->create_mesh(&capsule_mesh);
 
         // Initialize camera state
@@ -177,12 +177,12 @@ extern "C" GAME_ITERATE(game_iterate)
     }
 
     if (character_is_grounded(game_state->character_controller) && input->move_jump.pressed) {
-        velocity.y = 10;
+        velocity.y = 8;
     }
 
     character_set_linear_velocity(game_state->character_controller, velocity);
 
-    character_update(game_state->physics_world, game_state->character_controller, dt, glm::vec3(0, -0.5f, 0));
+    character_update(game_state->physics_world, game_state->character_controller, dt, glm::vec3(0, -9.81f, 0));
     update_physics_world(game_state->physics_world, dt, game_state->transient_arena);
 
     glm::vec3 position = character_get_position(game_state->character_controller);

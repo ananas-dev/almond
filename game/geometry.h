@@ -1,7 +1,8 @@
 #pragma once
 
-#include <almond.h>
 #include "arena.h"
+#include "string_view.h"
+#include <almond.h>
 
 typedef struct {
     glm::vec3 normal;
@@ -9,7 +10,6 @@ typedef struct {
     glm::vec2 offset;
     glm::vec2 scale;
     float rotation;
-    StringView material;
 } Plane;
 
 typedef struct {
