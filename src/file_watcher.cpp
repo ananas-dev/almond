@@ -20,7 +20,7 @@ struct FileWatcher {
 
 FileWatcher* create_file_watcher(const char* dir_path, FileWatcherEventCallback* callback, void* user_data)
 {
-    FileWatcher* watcher = SDL_malloc(sizeof(FileWatcher));
+    auto* watcher = static_cast<FileWatcher*>(SDL_malloc(sizeof(FileWatcher)));
 
     watcher->callback = callback;
     watcher->user_data = user_data;
@@ -28,14 +28,14 @@ FileWatcher* create_file_watcher(const char* dir_path, FileWatcherEventCallback*
     watcher->fd = inotify_init1(IN_NONBLOCK);
     if (watcher->fd < 0) {
         SDL_free(watcher);
-        return NULL;
+        return nullptr;
     }
 
     watcher->wd = inotify_add_watch(watcher->fd, dir_path, IN_MODIFY | IN_CREATE | IN_DELETE);
     if (watcher->wd < 0) {
         close(watcher->fd);
         SDL_free(watcher);
-        return NULL;
+        return nullptr;
     }
 
     return watcher;
@@ -50,7 +50,7 @@ void file_watcher_update(FileWatcher* file_watcher)
 
     size_t i = 0;
     while (i < (size_t)length) {
-        struct inotify_event* event = (struct inotify_event*)&file_watcher->buffer[i];
+        auto* event = reinterpret_cast<struct inotify_event*>(&file_watcher->buffer[i]);
 
         FileWatcherEvent file_watcher_event;
         file_watcher_event.file_name = event->name;

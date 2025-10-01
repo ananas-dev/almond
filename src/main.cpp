@@ -7,8 +7,8 @@
 #include <SDL3/SDL_gpu.h>
 #include <SDL3/SDL_loadso.h>
 #include <libgen.h>
-#include <stdio.h>
-#include <stdlib.h>
+#include <cstdio>
+#include <cstdlib>
 #include <sys/mman.h>
 
 Renderer renderer;
@@ -70,7 +70,7 @@ typedef struct {
 
 void game_so_watcher_callback(FileWatcherEvent* event, void* user_data)
 {
-    GameSoWatcherCallbackData* data = user_data;
+    auto* data = (GameSoWatcherCallbackData*)user_data;
 
     if (event->type == FW_MODIFY && strcmp(event->file_name, data->game_so_name) == 0) {
         reload_game_so(data->platform_state, data->game_so_path);
@@ -111,7 +111,7 @@ int main(int argc, char* argv[])
 
     DrawList draw_list = {};
     draw_list.capacity = Megabytes(10);
-    draw_list.commands = SDL_malloc(draw_list.capacity);
+    draw_list.commands = (DrawCommand*)SDL_malloc(draw_list.capacity);
 
     reload_game_so(&platform, argv[1]);
 
@@ -147,7 +147,7 @@ int main(int argc, char* argv[])
             input.buttons[i].half_transition_count = 0;
         }
 
-        input.mouse_movement = VEC2_ZERO;
+        input.mouse_movement = glm::vec2(0.0f);
 
         SDL_Event event;
         while (SDL_PollEvent(&event)) {

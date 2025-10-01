@@ -162,7 +162,7 @@ Token lexer_next(Lexer* lexer)
 
 typedef struct {
     Lexer lexer;
-    Arena* arena;
+    Arena& arena;
     MapEntityCallback* entity_callback;
     void* userdata;
 } Parser;
@@ -188,18 +188,18 @@ static float parse_number(Parser* parser)
     memcpy(number_str, token.value.data, token.value.count);
     number_str[token.value.count] = '\0';
 
-    float number = (float)strtod(number_str, NULL);
+    float number = (float)strtod(number_str, nullptr);
 
     return number;
 }
 
-static Vector3 parse_vector3(Parser* parser)
+static glm::vec3 parse_vector3(Parser* parser)
 {
     if (lexer_next(&parser->lexer).kind != TOKEN_LEFT_PAREN) {
         assert(false && "Missing opening paren");
     }
 
-    Vector3 vec;
+    glm::vec3 vec;
     vec.x = parse_number(parser);
     vec.y = parse_number(parser);
     vec.z = parse_number(parser);
@@ -213,10 +213,10 @@ static Vector3 parse_vector3(Parser* parser)
 
 static void parse_entity(Parser* parser)
 {
-    TempMemory temp = begin_temp_memory(parser->arena);
+    TempMemory temp = parser->arena.begin_temp_memory();
 
-    MapEntity* entity = PushStruct(parser->arena, MapEntity);
-    entity->brushes = PushArray(parser->arena, Brush, 100);
+    auto* entity = parser->arena.Push<MapEntity>();
+    entity->brushes = parser->arena.PushArray<Brush>(100);
     entity->brushes_count = 0;
 
     for (;;) {
@@ -249,13 +249,13 @@ static void parse_entity(Parser* parser)
             }
 
             Brush* brush = &entity->brushes[entity->brushes_count++];
-            brush->points = PushArray(parser->arena, Plane, 100);
+            brush->points = parser->arena.PushArray<Plane>(100);
             brush->count = 0;
 
             for (;;) {
-                Vector3 a = parse_vector3(parser);
-                Vector3 b = parse_vector3(parser);
-                Vector3 c = parse_vector3(parser);
+                glm::vec3 a = parse_vector3(parser);
+                glm::vec3 b = parse_vector3(parser);
+                glm::vec3 c = parse_vector3(parser);
 
                 if (brush->count >= 100) {
                     assert(false);
@@ -275,13 +275,13 @@ static void parse_entity(Parser* parser)
 
                 float x_offset = parse_number(parser);
                 float y_offset = parse_number(parser);
-                plane->offset = VEC2(x_offset, y_offset);
+                plane->offset = glm::vec2(x_offset, y_offset);
 
                 plane->rotation = parse_number(parser);
 
                 float scale_x = parse_number(parser);
                 float scale_y = parse_number(parser);
-                plane->scale = VEC2(scale_x, scale_y);
+                plane->scale = glm::vec2(scale_x, scale_y);
 
                 Lexer checkpoint = parser->lexer;
 
@@ -298,7 +298,7 @@ static void parse_entity(Parser* parser)
 
     parser->entity_callback(entity, parser->userdata, parser->arena);
 
-    end_temp_memory(temp);
+    parser->arena.end_temp_memory(temp);
 }
 
 static void parse(Parser* parser)
@@ -311,16 +311,9 @@ static void parse(Parser* parser)
     }
 }
 
-void parse_map(const char* data, MapEntityCallback* entity_callback, void* userdata, Arena* arena)
+void parse_map(const char* data, MapEntityCallback* entity_callback, void* userdata, Arena& arena)
 {
-    Lexer lexer = { 0 };
-    lexer.data = data;
-
-    Parser parser = { 0 };
-    parser.lexer = lexer;
-    parser.entity_callback = entity_callback;
-    parser.userdata = userdata;
-    parser.arena = arena;
-
+    Lexer lexer = { data };
+    Parser parser = { lexer, arena, entity_callback, userdata };
     parse(&parser);
 }

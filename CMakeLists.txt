@@ -60,7 +60,6 @@ add_executable(almond
         src/main.cpp
         src/logger.cpp
         src/renderer.cpp
-        src/arena_linux.cpp
         src/public/almond.h
         src/file_watcher.cpp
 )
@@ -79,7 +78,6 @@ add_library(game SHARED
         game/gltf_loader.h
         game/shapes.cpp
         game/shapes.h
-        src/public/almond_math.h
 )
 
 target_include_directories(almond PRIVATE vendor)

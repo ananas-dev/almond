@@ -161,34 +161,34 @@ public:
     }
 };
 
-class ArenaTempAllocator : public JPH::TempAllocator {
-public:
-    explicit ArenaTempAllocator(Arena* arena)
-    {
-        this->arena = arena;
-    }
-
-    void* Allocate(JPH::uint inSize) override
-    {
-        printf("Called Alloc\n");
-
-        return arena_push(arena, inSize, JPH_RVECTOR_ALIGNMENT);
-    }
-
-    void Free(void* inAddress, JPH::uint inSize) override
-    {
-        printf("Called free\n");
-
-        if (!inAddress) {
-            assert(inSize == 0);
-        }
-
-        arena_pop(arena, inSize);
-    }
-
-private:
-    Arena* arena;
-};
+// class ArenaTempAllocator : public JPH::TempAllocator {
+// public:
+//     explicit ArenaTempAllocator(Arena* arena)
+//     {
+//         this->arena = arena;
+//     }
+//
+//     void* Allocate(JPH::uint inSize) override
+//     {
+//         printf("Called Alloc\n");
+//
+//         return arena_push(arena, inSize, JPH_RVECTOR_ALIGNMENT);
+//     }
+//
+//     void Free(void* inAddress, JPH::uint inSize) override
+//     {
+//         printf("Called free\n");
+//
+//         if (!inAddress) {
+//             assert(inSize == 0);
+//         }
+//
+//         arena_pop(arena, inSize);
+//     }
+//
+// private:
+//     Arena* arena;
+// };
 
 struct PhysicsWorld {
     JPH::TempAllocatorImpl temp_allocator;
@@ -205,9 +205,9 @@ struct CharacterController {
     JPH::CharacterVirtual character_virtual;
 };
 
-PhysicsWorld* create_physics_world(Arena* arena)
+PhysicsWorld* create_physics_world(Arena& arena)
 {
-    auto* world = PushStruct(arena, PhysicsWorld);
+    auto* world = arena.Push<PhysicsWorld>();
 
     JPH::RegisterDefaultAllocator();
 
@@ -250,9 +250,9 @@ PhysicsWorld* create_physics_world(Arena* arena)
     return world;
 }
 
-CharacterController* create_character_controller(PhysicsWorld* physics_world, CharacterControllerCreateInfo* create_info, Arena* arena)
+CharacterController* create_character_controller(PhysicsWorld* physics_world, CharacterControllerCreateInfo* create_info, Arena& arena)
 {
-    auto* controller = PushStruct(arena, CharacterController);
+    auto* controller = arena.Push<CharacterController>();
 
     JPH::CharacterVirtualSettings character_settings;
     character_settings.mMass = create_info->mass;
@@ -266,34 +266,30 @@ CharacterController* create_character_controller(PhysicsWorld* physics_world, Ch
     return controller;
 }
 
-static Vector3 to_vector3(JPH::Vec3 vec3) {
-    return (Vector3) {
-        .x = vec3[0],
-        .y = vec3[1],
-        .z = vec3[2],
-    };
+static glm::vec3 to_glm(JPH::Vec3 vec3) {
+    return {vec3.GetX(), vec3.GetY(), vec3.GetZ()};
 }
 
-static JPH::Vec3 to_jph_vec3(Vector3 vector3) {
+static JPH::Vec3 to_jph_vec3(glm::vec3 vector3) {
     return {vector3.x, vector3.y, vector3.z};
 }
 
-Vector3 character_get_linear_velocity(CharacterController* character)
+glm::vec3 character_get_linear_velocity(CharacterController* character)
 {
-    return to_vector3(character->character_virtual.GetLinearVelocity());
+    return to_glm(character->character_virtual.GetLinearVelocity());
 }
 
-void character_set_linear_velocity(CharacterController* character, Vector3 velocity)
+void character_set_linear_velocity(CharacterController* character, glm::vec3 velocity)
 {
     character->character_virtual.SetLinearVelocity(to_jph_vec3(velocity));
 }
 
-Vector3 character_get_position(CharacterController* character)
+glm::vec3 character_get_position(CharacterController* character)
 {
-    return to_vector3(character->character_virtual.GetPosition());
+    return to_glm(character->character_virtual.GetPosition());
 }
 
-void character_set_position(CharacterController* character, Vector3 position)
+void character_set_position(CharacterController* character, glm::vec3 position)
 {
     character->character_virtual.SetPosition(to_jph_vec3(position));
 }
@@ -303,7 +299,7 @@ bool character_is_grounded(CharacterController* character)
     return character->character_virtual.GetGroundState() == JPH::CharacterBase::EGroundState::OnGround;
 }
 
-void character_update(PhysicsWorld* physics_world, CharacterController* character, float dt, Vector3 gravity)
+void character_update(PhysicsWorld* physics_world, CharacterController* character, float dt, glm::vec3 gravity)
 {
     JPH::Vec3 jph_gravity(gravity.x, gravity.y, gravity.z);
 
@@ -320,11 +316,11 @@ void character_update(PhysicsWorld* physics_world, CharacterController* characte
         physics_world->temp_allocator);
 }
 
-BodyID create_convex_hull_static_collider(PhysicsWorld* physics_world, MeshData* mesh, Arena* arena)
+BodyID create_convex_hull_static_collider(PhysicsWorld* physics_world, MeshData* mesh, Arena& arena)
 {
-    TempMemory temp = begin_temp_memory(arena);
-
-    auto* vertices = PushArray(arena, JPH::Vec3, mesh->vertices_count);
+    // TempMemory temp = arena.begin_temp_memory();
+    //
+    auto* vertices = arena.PushArray<JPH::Vec3>(mesh->vertices_count);
 
     for (size_t i = 0; i < mesh->vertices_count; i++) {
         Vertex* vertex = &mesh->vertices[i];
@@ -334,8 +330,6 @@ BodyID create_convex_hull_static_collider(PhysicsWorld* physics_world, MeshData*
     JPH::ConvexHullShapeSettings settings(vertices, (int)mesh->vertices_count);
 
     auto result = settings.Create();
-
-    end_temp_memory(temp);
 
     if (result.HasError()) {
         printf("%s\n", result.GetError().c_str());
@@ -350,10 +344,13 @@ BodyID create_convex_hull_static_collider(PhysicsWorld* physics_world, MeshData*
         Layers::NON_MOVING);
 
     JPH::BodyInterface& body_interface = physics_world->physics_system.GetBodyInterface();
+
+    // arena.end_temp_memory(temp);
+    //
     return body_interface.CreateAndAddBody(body_settings, JPH::EActivation::Activate).GetIndexAndSequenceNumber();
 }
 
-void update_physics_world(PhysicsWorld* physics_world, float dt, Arena* temp_arena)
+void update_physics_world(PhysicsWorld* physics_world, float dt, Arena& temp_arena)
 {
     // // FIXME: Actually use it
     // ArenaTempAllocator temp_allocator(temp_arena);

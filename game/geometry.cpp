@@ -1,39 +1,41 @@
 #include "geometry.h"
 
+#include "../src/logger.h"
+
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-#define DISTEPSILON 1e-6
-#define GRID_SIZE 1e-2
+#define DISTEPSILON 1e-6f
+#define GRID_SIZE 1e-2f
 
-typedef struct {
-    Vector2 offset;
-    Vector2 scale;
+struct TexInfo {
+    glm::vec2 offset;
+    glm::vec2 scale;
     float rotation;
-} TexInfo;
+};
 
-typedef struct {
-    Vector3 vertices[32]; // Edges upper-bound
+struct Polygon {
+    glm::vec3 vertices[32]; // Edges upper-bound
     size_t count;
     TexInfo tex_info;
-    Vector3 normal;
-} Polygon;
+    glm::vec3 normal;
+};
 
 typedef struct {
     Polygon* faces;
     size_t count;
 } Polyhedron;
 
-static Vector3 unit_cube_vertices[8] = {
-    { { -0.5f, -0.5f, 0.5f } }, // 0
-    { { 0.5f, -0.5f, 0.5f } }, // 1
-    { { -0.5f, 0.5f, 0.5f } }, // 2
-    { { 0.5f, 0.5f, 0.5f } }, // 3
-    { { -0.5f, -0.5f, -0.5f } }, // 4
-    { { 0.5f, -0.5f, -0.5f } }, // 5
-    { { -0.5f, 0.5f, -0.5f } }, // 6
-    { { 0.5f, 0.5f, -0.5f } } // 7
+static glm::vec3 unit_cube_vertices[8] = {
+    { -0.5f, -0.5f, 0.5f }, // 0
+    { 0.5f, -0.5f, 0.5f }, // 1
+    { -0.5f, 0.5f, 0.5f }, // 2
+    { 0.5f, 0.5f, 0.5f }, // 3
+    { -0.5f, -0.5f, -0.5f }, // 4
+    { 0.5f, -0.5f, -0.5f }, // 5
+    { -0.5f, 0.5f, -0.5f }, // 6
+    { 0.5f, 0.5f, -0.5f } // 7
 };
 
 static uint16_t unit_cube_faces[6][4] = {
@@ -51,13 +53,13 @@ static uint16_t unit_cube_faces[6][4] = {
     { 4, 6, 7, 5 }
 };
 
-static Vector3 unit_cube_normals[6] = {
-    { { 0.0f, 0.0f, 1.0f } }, // Top (z = 0.5)
-    { { 0.0f, 0.0f, -1.0f } }, // Bottom (z = -0.5)
-    { { -1.0f, 0.0f, 0.0f } }, // Left (x = -0.5)
-    { { 1.0f, 0.0f, 0.0f } }, // Right (x = 0.5)
-    { { 0.0f, -1.0f, 0.0f } }, // Front (y = -0.5)
-    { { 0.0f, 1.0f, 0.0f } } // Back (y = 0.5)
+static glm::vec3 unit_cube_normals[6] = {
+    { 0.0f, 0.0f, 1.0f }, // Top (z = 0.5)
+    { 0.0f, 0.0f, -1.0f }, // Bottom (z = -0.5)
+    { -1.0f, 0.0f, 0.0f }, // Left (x = -0.5)
+    { 1.0f, 0.0f, 0.0f }, // Right (x = 0.5)
+    { 0.0f, -1.0f, 0.0f }, // Front (y = -0.5)
+    { 0.0f, 1.0f, 0.0f } // Back (y = 0.5)
 };
 
 Polygon* push_polygon(Polyhedron* polyhedron)
@@ -65,65 +67,16 @@ Polygon* push_polygon(Polyhedron* polyhedron)
     return &polyhedron->faces[polyhedron->count++];
 }
 
-static Vector3 snap_to_grid(Vector3 vertex, float grid_size)
+static glm::vec3 snap_to_grid(glm::vec3 vertex, float grid_size)
 {
-    return VEC3(
+    return {
         roundf(vertex.x / grid_size) * grid_size,
         roundf(vertex.y / grid_size) * grid_size,
-        roundf(vertex.z / grid_size) * grid_size);
+        roundf(vertex.z / grid_size) * grid_size
+    };
 }
 
-// 3x3 Matrix for rotation and transformation
-typedef struct {
-    float m[3][3];
-} Matrix3;
-
-// Create a 3x3 identity matrix
-static Matrix3 matrix3_identity()
-{
-    Matrix3 out = { { { 1, 0, 0 },
-        { 0, 1, 0 },
-        { 0, 0, 1 } } };
-    return out;
-}
-
-// Create a 3x3 rotation matrix given an axis and angle (right-handed, angle in radians)
-// Rodrigues' rotation formula
-static Matrix3 matrix3_axis_angle(Vector3 axis, float angle)
-{
-    axis = vector3_normalize(axis);
-    float x = axis.x, y = axis.y, z = axis.z;
-    float c = cosf(angle);
-    float s = sinf(angle);
-    float t = 1.0f - c;
-
-    Matrix3 out;
-    out.m[0][0] = c + x * x * t;
-    out.m[0][1] = x * y * t - z * s;
-    out.m[0][2] = x * z * t + y * s;
-
-    out.m[1][0] = y * x * t + z * s;
-    out.m[1][1] = c + y * y * t;
-    out.m[1][2] = y * z * t - x * s;
-
-    out.m[2][0] = z * x * t - y * s;
-    out.m[2][1] = z * y * t + x * s;
-    out.m[2][2] = c + z * z * t;
-
-    return out;
-}
-
-// Transform a vector by a 3x3 matrix
-static Vector3 matrix3_transform(Matrix3 m, Vector3 v)
-{
-    Vector3 out;
-    out.x = m.m[0][0] * v.x + m.m[0][1] * v.y + m.m[0][2] * v.z;
-    out.y = m.m[1][0] * v.x + m.m[1][1] * v.y + m.m[1][2] * v.z;
-    out.z = m.m[2][0] * v.x + m.m[2][1] * v.y + m.m[2][2] * v.z;
-    return out;
-}
-
-static Vector3 base_axis[6][3] = {
+static glm::vec3 base_axis[6][3] = {
     { { 0, 0, 1 }, { 1, 0, 0 }, { 0, -1, 0 } }, // floor
     { { 0, 0, -1 }, { 1, 0, 0 }, { 0, -1, 0 } }, // ceiling
     { { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, -1 } }, // west wall
@@ -133,58 +86,54 @@ static Vector3 base_axis[6][3] = {
 };
 
 static void calculate_rotated_uv(
-    Vector3 normal,
-    Vector3 u_axis_in,
-    Vector3 v_axis_in,
+    glm::vec3 normal,
+    glm::vec3 u_axis_in,
+    glm::vec3 v_axis_in,
     float xscale,
     float yscale,
     float rotation_deg,
-    Vector3* u_axis_out,
-    Vector3* v_axis_out)
+    glm::vec3* u_axis_out,
+    glm::vec3* v_axis_out)
 {
-    // 1. Scale - preserve the sign for flipping
-    Vector3 scaled_u = vector3_scale(u_axis_in, 1.0f / xscale);
-    Vector3 scaled_v = vector3_scale(v_axis_in, 1.0f / yscale);
+    glm::vec3 scaled_u = u_axis_in * 1.0f / xscale;
+    glm::vec3 scaled_v = v_axis_in * 1.0f / yscale;
 
-    // 2. Rotation axis is the dominant axis of the normal
-    Vector3 rotation_axis;
-    Vector3 abs_n = vector3_abs(normal);
+    glm::vec3 rotation_axis;
+    glm::vec3 abs_n = glm::abs(normal);
     if (abs_n.x > abs_n.y && abs_n.x > abs_n.z)
-        rotation_axis = VEC3(1, 0, 0);
+        rotation_axis = glm::vec3(1, 0, 0);
     else if (abs_n.y > abs_n.z)
-        rotation_axis = VEC3(0, 1, 0);
+        rotation_axis = glm::vec3(0, 1, 0);
     else
-        rotation_axis = VEC3(0, 0, 1);
+        rotation_axis = glm::vec3(0, 0, 1);
 
-    // 3. Apply rotation (if any)
     if (fabsf(rotation_deg) > 0.001f) {
-        float rotation_rad = rotation_deg * (float)M_PI / 180.0f;
-        Matrix3 rotmat = matrix3_axis_angle(rotation_axis, rotation_rad);
-        *u_axis_out = matrix3_transform(rotmat, scaled_u);
-        *v_axis_out = matrix3_transform(rotmat, scaled_v);
+        glm::mat3 rot = glm::mat3_cast(glm::angleAxis(glm::radians(rotation_deg), rotation_axis));
+        *u_axis_out = rot * scaled_u;
+        *v_axis_out = rot * scaled_v;
     } else {
         *u_axis_out = scaled_u;
         *v_axis_out = scaled_v;
     }
 }
 
-static Vector2 calculate_uv(
-    Vector3 vertex,
+static glm::vec2 calculate_uv(
+    glm::vec3 vertex,
     float xshift, float yshift,
     float tex_width, float tex_height,
-    Vector3 u_axis, Vector3 v_axis)
+    glm::vec3 u_axis, glm::vec3 v_axis)
 {
-    float u = vector3_dot(vertex, u_axis) + xshift;
-    float v = vector3_dot(vertex, v_axis) + yshift;
+    float u = glm::dot(vertex, u_axis) + xshift;
+    float v = glm::dot(vertex, v_axis) + yshift;
     u /= tex_width;
     v /= tex_height;
-    return VEC2(u, v);
+    return {u, v};
 }
 
 // O(n)
-static int find_or_insert_vertex(MeshData* mesh, Vector3 position, TexInfo tex_info, Vector3 normal)
+static int find_or_insert_vertex(MeshData* mesh, glm::vec3 position, TexInfo tex_info, glm::vec3 normal)
 {
-    Vector3 snapped_position = snap_to_grid(position, GRID_SIZE);
+    glm::vec3 snapped_position = snap_to_grid(position, GRID_SIZE);
 
     // for (size_t i = 0; i < mesh->vertices_count; i++) {
     //     if (vector3_eq(mesh->vertices[i].position, snapped_position, DISTEPSILON)) {
@@ -198,27 +147,27 @@ static int find_or_insert_vertex(MeshData* mesh, Vector3 position, TexInfo tex_i
     float best_dot = -1.0f;
     int bestaxis = 0;
     for (int i = 0; i < 6; i++) {
-        float dot = vector3_dot(normal, base_axis[i][0]);
+        float dot = glm::dot(normal, base_axis[i][0]);
         if (dot > best_dot) {
             best_dot = dot;
             bestaxis = i;
         }
     }
 
-    Vector3 u_axis = base_axis[bestaxis][1];
-    Vector3 v_axis = base_axis[bestaxis][2];
+    glm::vec3 u_axis = base_axis[bestaxis][1];
+    glm::vec3 v_axis = base_axis[bestaxis][2];
 
-    Vector3 rotated_u, rotated_v;
+    glm::vec3 rotated_u, rotated_v;
     calculate_rotated_uv(
         normal,
         u_axis, v_axis,
-        tex_info.scale.u, tex_info.scale.v,
+        tex_info.scale.x, tex_info.scale.y,
         tex_info.rotation,
         &rotated_u, &rotated_v);
 
-    Vector2 uv = calculate_uv(
+    glm::vec2 uv = calculate_uv(
         snapped_position,
-        tex_info.offset.u, tex_info.offset.v,
+        tex_info.offset.x, tex_info.offset.y,
         32.0f, 32.0f,
         rotated_u, rotated_v);
 
@@ -229,44 +178,44 @@ static int find_or_insert_vertex(MeshData* mesh, Vector3 position, TexInfo tex_i
     return index;
 }
 
-Plane plane_from_points(Vector3 a, Vector3 b, Vector3 c)
+Plane plane_from_points(glm::vec3 a, glm::vec3 b, glm::vec3 c)
 {
-    Plane plane = { 0 };
+    Plane plane = {};
 
-    plane.normal = vector3_normalize(vector3_cross(vector3_sub(b, a), vector3_sub(c, a)));
+    plane.normal = glm::normalize(glm::cross(b - a, c - a));
     plane.anchor = a;
 
     return plane;
 }
 
-static bool is_inside_half_plane(Plane plane, Vector3 x)
+static bool is_inside_half_plane(Plane plane, glm::vec3 x)
 {
-    return vector3_dot(vector3_sub(x, plane.anchor), plane.normal) >= 0;
+    return glm::dot(x - plane.anchor, plane.normal) >= 0;
 }
 
-Vector3 edge_plane_intersection(Plane plane, Vector3 p, Vector3 c)
+glm::vec3 edge_plane_intersection(Plane plane, glm::vec3 p, glm::vec3 c)
 {
-    Vector3 ray_dir = vector3_sub(c, p);
-    Vector3 prev_to_anchor = vector3_sub(plane.anchor, p);
+    glm::vec3 ray_dir = c - p;
+    glm::vec3 prev_to_anchor = plane.anchor - p;
 
-    float numerator = vector3_dot(prev_to_anchor, plane.normal);
-    float denominator = vector3_dot(ray_dir, plane.normal);
+    float numerator = glm::dot(prev_to_anchor, plane.normal);
+    float denominator = glm::dot(ray_dir, plane.normal);
 
-    Vector3 intersection;
+    glm::vec3 intersection;
     if (fabsf(denominator) > DISTEPSILON) {
         float t = numerator / denominator;
-        intersection = vector3_add(p, vector3_scale(ray_dir, t));
+        intersection = p + ray_dir * t;
     } else {
-        // Fallback
-        intersection = vector3_lerp(p, c, 0.5f);
+        printf("Malformed brush");
+        return {};
     }
 
     return snap_to_grid(intersection, GRID_SIZE);
 }
 
 typedef struct {
-    Vector3 center;
-    Vector3 normal;
+    glm::vec3 center;
+    glm::vec3 normal;
 } ConvexPolygonCompareUserData;
 
 static ConvexPolygonCompareUserData convex_polygon_compare_user_data;
@@ -274,41 +223,33 @@ static ConvexPolygonCompareUserData convex_polygon_compare_user_data;
 int convex_polygon_compare(const void* a, const void* b)
 {
     ConvexPolygonCompareUserData* data = &convex_polygon_compare_user_data;
-    Vector3* A = (Vector3*)a;
-    Vector3* B = (Vector3*)b;
+    auto* A = static_cast<const glm::vec3*>(a);
+    auto* B = static_cast<const glm::vec3*>(b);
 
-    Vector3 vec_a = vector3_sub(*A, data->center);
-    Vector3 vec_b = vector3_sub(*B, data->center);
+    glm::vec3 vec_a = *A - data->center;
+    glm::vec3 vec_b = *B - data->center;
 
-    // Project vectors onto the plane
-    float dot_a = vector3_dot(vec_a, data->normal);
-    float dot_b = vector3_dot(vec_b, data->normal);
-
-    Vector3 proj_a = vector3_sub(vec_a, vector3_scale(data->normal, dot_a));
-    Vector3 proj_b = vector3_sub(vec_b, vector3_scale(data->normal, dot_b));
-
-    // Normalize projected vectors
-    proj_a = vector3_normalize(proj_a);
-    proj_b = vector3_normalize(proj_b);
+    glm::vec3 proj_a = glm::normalize(vec_a - data->normal * glm::dot(vec_a, data->normal));
+    glm::vec3 proj_b = glm::normalize(vec_b - data->normal * glm::dot(vec_b, data->normal));
 
     // Calculate angles using atan2
     // We need a consistent reference frame on the plane
-    Vector3 reference;
+    glm::vec3 reference;
 
     // Create reference vector perpendicular to normal
     if (fabsf(data->normal.x) < 0.9f) {
-        reference = vector3_cross(data->normal, VEC3(1, 0, 0));
+        reference = glm::cross(data->normal, glm::vec3(1, 0, 0));
     } else {
-        reference = vector3_cross(data->normal, VEC3(0, 1, 0));
+        reference = glm::cross(data->normal, glm::vec3(0, 1, 0));
     }
-    reference = vector3_normalize(reference);
+    reference = glm::normalize(reference);
 
     // Create tangent vector (completes the 2D coordinate system)
-    Vector3 tangent = vector3_cross(data->normal, reference);
+    glm::vec3 tangent = glm::cross(data->normal, reference);
 
     // Get 2D coordinates on the plane
-    float angle_a = atan2f(vector3_dot(proj_a, tangent), vector3_dot(proj_a, reference));
-    float angle_b = atan2f(vector3_dot(proj_b, tangent), vector3_dot(proj_b, reference));
+    float angle_a = atan2f(glm::dot(proj_a, tangent), glm::dot(proj_a, reference));
+    float angle_b = atan2f(glm::dot(proj_b, tangent), glm::dot(proj_b, reference));
 
     if (angle_a < angle_b)
         return -1;
@@ -318,12 +259,12 @@ int convex_polygon_compare(const void* a, const void* b)
     return 0;
 }
 
-MeshData brush_to_mesh(Brush brush, Arena* arena)
+MeshData brush_to_mesh(Brush brush, Arena& arena)
 {
     Polyhedron polyhedra[2] = {};
 
-    polyhedra[0].faces = PushArray(arena, Polygon, 6 + brush.count);
-    polyhedra[1].faces = PushArray(arena, Polygon, 6 + brush.count);
+    polyhedra[0].faces = arena.PushArray<Polygon>(6 + brush.count);
+    polyhedra[1].faces = arena.PushArray<Polygon>(6 + brush.count);
 
     int current_polyhedron = 0;
 
@@ -338,8 +279,7 @@ MeshData brush_to_mesh(Brush brush, Arena* arena)
         poly->count = 4;
 
         for (int j = 0; j < 4; j++) {
-            poly->vertices[j] = vector3_scale(unit_cube_vertices[unit_cube_faces[i][j]], 8192);
-            poly->vertices[j] = snap_to_grid(poly->vertices[j], GRID_SIZE);
+            poly->vertices[j] = snap_to_grid(unit_cube_vertices[unit_cube_faces[i][j]] * 8192.0f, GRID_SIZE);
         }
     }
 
@@ -363,19 +303,19 @@ MeshData brush_to_mesh(Brush brush, Arena* arena)
             new_poly->tex_info = poly->tex_info;
 
             for (size_t k = 0; k < poly->count; k++) {
-                Vector3 current_point = poly->vertices[k];
-                Vector3 prev_point = poly->vertices[(k - 1 + poly->count) % poly->count];
+                glm::vec3 current_point = poly->vertices[k];
+                glm::vec3 prev_point = poly->vertices[(k - 1 + poly->count) % poly->count];
 
                 bool is_current_inside = is_inside_half_plane(plane, current_point);
                 bool is_prev_inside = is_inside_half_plane(plane, prev_point);
 
                 if (is_current_inside) {
                     if (!is_prev_inside) {
-                        Vector3 intersection = edge_plane_intersection(plane, prev_point, current_point);
+                        glm::vec3 intersection = edge_plane_intersection(plane, prev_point, current_point);
 
                         bool is_duplicate = false;
                         for (size_t l = 0; l < clipped_poly.count; l++) {
-                            if (vector3_eq(intersection, clipped_poly.vertices[l], DISTEPSILON)) {
+                            if (glm::all(glm::epsilonEqual(intersection, clipped_poly.vertices[l], DISTEPSILON))) {
                                 is_duplicate = true;
                                 break;
                             }
@@ -389,11 +329,11 @@ MeshData brush_to_mesh(Brush brush, Arena* arena)
 
                     new_poly->vertices[new_poly->count++] = current_point;
                 } else if (is_prev_inside) {
-                    Vector3 intersection = edge_plane_intersection(plane, prev_point, current_point);
+                    glm::vec3 intersection = edge_plane_intersection(plane, prev_point, current_point);
 
                     bool is_duplicate = false;
                     for (size_t l = 0; l < clipped_poly.count; l++) {
-                        if (vector3_eq(intersection, clipped_poly.vertices[l], DISTEPSILON)) {
+                        if (glm::all(glm::epsilonEqual(intersection, clipped_poly.vertices[l], DISTEPSILON))) {
                             is_duplicate = true;
                             break;
                         }
@@ -414,14 +354,14 @@ MeshData brush_to_mesh(Brush brush, Arena* arena)
 
         if (clipped_poly.count >= 3) {
             convex_polygon_compare_user_data.normal = plane.normal;
-            convex_polygon_compare_user_data.center = VEC3_ZERO;
+            convex_polygon_compare_user_data.center = glm::vec3(0.0f);
 
             for (size_t j = 0; j < clipped_poly.count; j++) {
-                convex_polygon_compare_user_data.center = vector3_add(convex_polygon_compare_user_data.center, clipped_poly.vertices[j]);
+                convex_polygon_compare_user_data.center += clipped_poly.vertices[j];
             }
-            convex_polygon_compare_user_data.center = vector3_divs(convex_polygon_compare_user_data.center, (float)clipped_poly.count);
+            convex_polygon_compare_user_data.center /= (float)clipped_poly.count;
 
-            qsort(clipped_poly.vertices, clipped_poly.count, sizeof(Vector3), convex_polygon_compare);
+            qsort(clipped_poly.vertices, clipped_poly.count, sizeof(glm::vec3), convex_polygon_compare);
 
             Polygon* new_poly = push_polygon(&polyhedra[1 - current_polyhedron]);
             new_poly->count = clipped_poly.count;
@@ -451,8 +391,8 @@ MeshData brush_to_mesh(Brush brush, Arena* arena)
 
     MeshData mesh = {};
 
-    mesh.indices = PushArray(arena, uint16_t, faces_upper_bound * 3);
-    mesh.vertices = PushArray(arena, Vertex, vertices_upper_bound);
+    mesh.indices = arena.PushArray<uint16_t>(faces_upper_bound * 3);
+    mesh.vertices = arena.PushArray<Vertex>(vertices_upper_bound);
 
     for (size_t i = 0; i < output_polyhedron->count; i++) {
         Polygon* poly = &output_polyhedron->faces[i];

@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 // #include "almond_math.h"
 
@@ -20,15 +21,15 @@ typedef uint32_t TextureHandle;
 typedef uint32_t MaterialHandle;
 
 typedef struct {
-    position;
-    Vector3 target;
+    glm::vec3 position;
+    glm::vec3 target;
     float yaw;
     float pitch;
 } Camera;
 
 typedef struct {
-    Vector3 position;
-    Vector2 texcoords;
+    glm::vec3 position;
+    glm::vec2 texcoords;
 } Vertex;
 
 typedef struct {
@@ -62,19 +63,15 @@ typedef struct {
     CreateMaterialFn* create_material;
 } Api;
 
-typedef struct {
-    Vector3 position;
-    Vector4 rotation;
-    Vector3 scale;
-} Transform;
+struct Transform {
+    glm::vec3 position = glm::vec3(0.0f);
+    glm::quat rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+    glm::vec3 scale = glm::vec3(1.0f);
+};
 
-#define TRANSFORM_IDENTITY_INIT { VEC3_ZERO, VEC4(0.0f, 0.0f, 0.0f, 1.0f), VEC3(1.0f, 1.0f, 1.0f) }
-#define TRANSFORM_IDENTITY ((Transform)TRANSFORM_IDENTITY_INIT)
-
-typedef enum {
-    DRAW_MESH,
-    DRAW_DEBUG_COLLIDER,
-} DrawCommandType;
+enum class DrawCommandType {
+    DrawMesh,
+};
 
 typedef struct {
     DrawCommandType type;
@@ -92,7 +89,7 @@ typedef struct {
 } DrawCommand;
 
 typedef struct {
-    Vector4 clear_color;
+    glm::vec4 clear_color;
     Camera camera;
     DrawCommand* commands;
     size_t count;
@@ -117,9 +114,9 @@ typedef struct {
 typedef struct {
     bool is_gamepad;
 
-    Vector2 mouse_movement;
-    Vector2 left_stick;
-    Vector2 right_stick;
+    glm::vec2 mouse_movement;
+    glm::vec2 left_stick;
+    glm::vec2 right_stick;
 
     union {
         GameButtonState buttons[5];

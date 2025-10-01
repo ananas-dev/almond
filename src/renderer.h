@@ -3,8 +3,6 @@
 #include "public/almond.h"
 #include <SDL3/SDL_gpu.h>
 
-#include <cglm/cglm.h>
-
 typedef struct {
     MeshHandle handle;
     SDL_GPUBuffer* vertex_buffer;
@@ -44,10 +42,10 @@ typedef struct {
 
     SDL_GPUSampler* texture_sampler;
 
-    mat4 projection_matrix;
+    glm::mat4 projection_matrix;
 } Renderer;
 
 bool renderer_init(Renderer* renderer, SDL_Window* window);
 MeshHandle renderer_create_mesh(Renderer* renderer, MeshData* mesh_data);
-TextureHandle renderer_create_texture(Renderer* renderer, const uint8_t* rgba_data, int width, int height);
+TextureHandle renderer_create_texture(Renderer* renderer, const uint8_t* rgba_data, uint32_t width, uint32_t height);
 void renderer_play_draw_list(Renderer* renderer, DrawList* draw_list);

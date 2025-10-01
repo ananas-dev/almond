@@ -6,8 +6,8 @@
 #include <SDL3/SDL_log.h>
 
 typedef struct {
-    mat4 proj_view_matrix;
-    mat4 model_matrix;
+    glm::mat4 proj_view_matrix;
+    glm::mat4 model_matrix;
 } VertexUniforms;
 
 static SDL_GPUShader* load_shader(SDL_GPUDevice* device, const char* path, SDL_GPUShaderStage stage,
@@ -127,8 +127,8 @@ bool renderer_init(Renderer* renderer, SDL_Window* window)
         .layer_count_or_depth = 1,
         .num_levels = 1,
         .format = SDL_GPU_TEXTUREFORMAT_D32_FLOAT,
-        .width = width,
-        .height = height,
+        .width = static_cast<Uint32>(width),
+        .height = static_cast<Uint32>(height),
         .usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET,
         .sample_count = SDL_GPU_SAMPLECOUNT_4,
     };
@@ -143,8 +143,8 @@ bool renderer_init(Renderer* renderer, SDL_Window* window)
         .type = SDL_GPU_TEXTURETYPE_2D,
         .format = SDL_GetGPUSwapchainTextureFormat(renderer->device, renderer->window),
         .usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET,
-        .width = width,
-        .height = height,
+        .width = static_cast<Uint32>(width),
+        .height = static_cast<Uint32>(height),
         .layer_count_or_depth = 1,
         .num_levels = 1,
         .sample_count = SDL_GPU_SAMPLECOUNT_4,
@@ -163,12 +163,12 @@ bool renderer_init(Renderer* renderer, SDL_Window* window)
     renderer->texture_sampler = SDL_CreateGPUSampler(renderer->device, &sampler_info);
 
     renderer->mesh_storage.capacity = 1024 * 10;
-    renderer->mesh_storage.meshes = SDL_malloc(renderer->mesh_storage.capacity);
+    renderer->mesh_storage.meshes = (MeshResource*)SDL_malloc(renderer->mesh_storage.capacity);
 
     renderer->texture_storage.capacity = 1024 * 10;
-    renderer->texture_storage.textures = SDL_malloc(renderer->texture_storage.capacity);
+    renderer->texture_storage.textures = (TextureResource*)SDL_malloc(renderer->texture_storage.capacity);
 
-    glm_perspective(glm_rad(45.0f), (float)width / (float)height, 1.0f, 4096.0f, renderer->projection_matrix);
+    renderer->projection_matrix = glm::perspective(glm::radians(45.0f), (float)width / (float)height, 1.0f, 4096.0f);
 
     return true;
 }
@@ -185,8 +185,8 @@ MeshHandle renderer_create_mesh(Renderer* renderer, MeshData* mesh_data)
         return 0;
     }
 
-    size_t vertices_size = mesh_data->vertices_count * sizeof(*mesh_data->vertices);
-    size_t indices_size = mesh_data->indices_count * sizeof(*mesh_data->indices);
+    Uint32 vertices_size = mesh_data->vertices_count * sizeof(*mesh_data->vertices);
+    Uint32 indices_size = mesh_data->indices_count * sizeof(*mesh_data->indices);
 
     SDL_GPUTransferBufferCreateInfo transfer_info = {
         .size = vertices_size + indices_size,
@@ -199,7 +199,7 @@ MeshHandle renderer_create_mesh(Renderer* renderer, MeshData* mesh_data)
         return 0;
     }
 
-    uint8_t* transfer_data = SDL_MapGPUTransferBuffer(renderer->device, transfer_buffer, false);
+    uint8_t* transfer_data = (uint8_t*)SDL_MapGPUTransferBuffer(renderer->device, transfer_buffer, false);
     if (!transfer_data) {
         log_err("%s", SDL_GetError());
         SDL_ReleaseGPUTransferBuffer(renderer->device, transfer_buffer);
@@ -267,12 +267,12 @@ MeshHandle renderer_create_mesh(Renderer* renderer, MeshData* mesh_data)
 
     SDL_GPUTransferBufferLocation index_buffer_location = {
         .transfer_buffer = transfer_buffer,
-        .offset = vertices_size,
+        .offset = static_cast<Uint32>(vertices_size),
     };
 
     SDL_GPUBufferRegion index_buffer_region = {
         .buffer = index_buffer,
-        .size = indices_size,
+        .size = static_cast<Uint32>(indices_size),
         .offset = 0,
     };
 
@@ -291,7 +291,7 @@ MeshHandle renderer_create_mesh(Renderer* renderer, MeshData* mesh_data)
 
     return mesh_resource->handle;
 }
-TextureHandle renderer_create_texture(Renderer* renderer, const uint8_t* rgba_data, int width, int height)
+TextureHandle renderer_create_texture(Renderer* renderer, const uint8_t* rgba_data, uint32_t width, uint32_t height)
 {
     SDL_GPUTextureCreateInfo texture_create_info = {};
     texture_create_info.type = SDL_GPU_TEXTURETYPE_2D;
@@ -409,14 +409,8 @@ void renderer_play_draw_list(Renderer* renderer, DrawList* draw_list)
 
     VertexUniforms vertex_uniforms;
 
-    mat4 view_matrix;
-    vec3 eye, center;
-    glm_vec3_make(draw_list->camera.position.items, eye);
-    glm_vec3_make(draw_list->camera.target.items, center);
-
-    glm_lookat(eye, center, (vec3) { 0.0f, 1.0f, 0.0f }, view_matrix);
-
-    glm_mul(renderer->projection_matrix, view_matrix, vertex_uniforms.proj_view_matrix);
+    glm::mat4 view_matrix = glm::lookAt(draw_list->camera.position, draw_list->camera.target, glm::vec3(0.0f, 1.0f, 0.0f));
+    vertex_uniforms.proj_view_matrix = renderer->projection_matrix * view_matrix;
 
     SDL_BindGPUGraphicsPipeline(render_pass, renderer->graphics_pipeline);
 
@@ -424,24 +418,15 @@ void renderer_play_draw_list(Renderer* renderer, DrawList* draw_list)
         DrawCommand* cmd = &draw_list->commands[i];
 
         switch (cmd->type) {
-        case DRAW_MESH: {
+        case DrawCommandType::DrawMesh: {
             MeshHandle mesh_handle = cmd->as.draw_mesh.mesh;
             TextureHandle texture_handle = cmd->as.draw_mesh.texture;
             Transform transform = cmd->as.draw_mesh.transform;
 
-            vec3 scale;
-            glm_vec3_make(transform.scale.items, scale);
-
-            vec4 rotation;
-            glm_vec4_make(transform.rotation.items, rotation);
-
-            vec3 translation;
-            glm_vec3_copy(transform.position.items, translation);
-
-            glm_mat4_identity(vertex_uniforms.model_matrix);
-            glm_translate(vertex_uniforms.model_matrix, translation);
-            glm_quat_rotate(vertex_uniforms.model_matrix, rotation, vertex_uniforms.model_matrix);
-            glm_scale(vertex_uniforms.model_matrix, scale);
+            vertex_uniforms.model_matrix = glm::mat4(1.0f);
+            vertex_uniforms.model_matrix = glm::translate(vertex_uniforms.model_matrix, transform.position);
+            vertex_uniforms.model_matrix = vertex_uniforms.model_matrix * glm::mat4_cast(transform.rotation);
+            vertex_uniforms.model_matrix = glm::scale(vertex_uniforms.model_matrix, transform.scale);
 
             if (mesh_handle == 0 || mesh_handle > renderer->mesh_storage.count) {
                 log_err("DrawMesh: Invalid MeshHandle");

@@ -34,14 +34,14 @@ typedef struct {
     GameState* game_state;
 } MapParsingState;
 
-void load_callback(MapEntity* entity, void* user_data, Arena* temp_arena)
+void load_callback(MapEntity* entity, void* user_data, Arena& temp_arena)
 {
-    MapParsingState* state = user_data;
+    MapParsingState* state = (MapParsingState*)user_data;
 
     for (size_t i = 0; i < entity->brushes_count; i++) {
         MeshData mesh_data = brush_to_mesh(entity->brushes[i], temp_arena);
 
-        for (int i = 0; i < mesh_data.vertices_count; i++) {
+        for (size_t i = 0; i < mesh_data.vertices_count; i++) {
             float temp = mesh_data.vertices[i].position.y;
 
             mesh_data.vertices[i].position.x /= 40.f;
@@ -56,48 +56,51 @@ void load_callback(MapEntity* entity, void* user_data, Arena* temp_arena)
     }
 }
 
-GAME_ITERATE(game_iterate)
+extern "C" GAME_ITERATE(game_iterate)
 {
-    GameState* game_state = (GameState*)memory->permanent_storage;
+    auto* game_state = static_cast<GameState*>(memory->permanent_storage);
 
-    draw_list->clear_color = (Vector4) {
-        0.08f, 0.05f, 0.12f, 1.0f
-    };
+    draw_list->clear_color = glm::vec4(0.08f, 0.05f, 0.12f, 1.0f);
 
     if (!memory->is_initialized) {
-        game_state->transient_arena = create_arena(memory->transient_storage, memory->transient_storage_size);
-        game_state->game_arena = create_arena(memory->permanent_storage + sizeof(GameState), memory->permanent_storage_size - sizeof(GameState));
+        game_state->transient_arena = Arena(memory->transient_storage, memory->transient_storage_size);
 
-        game_state->physics_world = create_physics_world(&game_state->game_arena);
+        // Get pointer after GameState for additional data
+        void* after_game_state = static_cast<uint8_t*>(memory->permanent_storage) + sizeof(GameState);
+        size_t remaining = memory->permanent_storage_size - sizeof(GameState);
+
+        game_state->game_arena = Arena(after_game_state, remaining);
+
+        game_state->physics_world = create_physics_world(game_state->game_arena);
 
         CharacterControllerCreateInfo character_controller_create_info = {
             .mass = 70,
             .max_strength = 100,
         };
 
-        game_state->character_controller = create_character_controller(game_state->physics_world, &character_controller_create_info, &game_state->game_arena);
+        game_state->character_controller = create_character_controller(game_state->physics_world, &character_controller_create_info, game_state->game_arena);
 
-        character_set_position(game_state->character_controller, (Vector3) { 0, 100, 0 });
+        character_set_position(game_state->character_controller, glm::vec3(0, 100, 0));
 
-        game_state->meshes = PushArray(&game_state->game_arena, MeshHandle, 500);
+        game_state->meshes = game_state->game_arena.PushArray<MeshHandle>(500);
         game_state->meshes_count = 0;
 
-        MapParsingState parsing_state = { 0 };
+        MapParsingState parsing_state = {};
         parsing_state.api = api;
         parsing_state.game_state = game_state;
 
-        const char* map_data = api->load_entire_file("./content/celeste.map", NULL);
-        parse_map(map_data, load_callback, &parsing_state, &game_state->transient_arena);
+        const char* map_data = (const char*)api->load_entire_file("./content/celeste.map", NULL);
+        parse_map(map_data, load_callback, &parsing_state, game_state->transient_arena);
 
-        MeshData character_mesh = load_first_mesh_from_gltf("./content/character.glb", &game_state->transient_arena);
-        game_state->character_mesh = api->create_mesh(&character_mesh);
+        // MeshData character_mesh = load_first_mesh_from_gltf("./content/character.glb", &game_state->transient_arena);
+        // game_state->character_mesh = api->create_mesh(&character_mesh);
 
         MeshData capsule_mesh = make_capsule(0.3f, 0.4f, 12, 6, &game_state->transient_arena);
         game_state->character_capsule_mesh = api->create_mesh(&capsule_mesh);
 
         // Initialize camera state
         game_state->camera_yaw = 0.0f;
-        game_state->camera_pitch = -30.0f; // Look down slightly
+        game_state->camera_pitch = -30.0f;
         game_state->camera_distance = 10.0f;
 
         game_state->test_texture = load_texture("wall.png", api);
@@ -123,12 +126,12 @@ GAME_ITERATE(game_iterate)
     float yaw_rad = game_state->camera_yaw * ((float)M_PI / 180.0f);
     float pitch_rad = game_state->camera_pitch * ((float)M_PI / 180.0f);
 
-    Vector3 camera_forward = VEC3(
+    glm::vec3 camera_forward = glm::vec3(
         cosf(pitch_rad) * sinf(yaw_rad),
         sinf(pitch_rad),
         cosf(pitch_rad) * cosf(yaw_rad));
 
-    Vector2 direction = {};
+    glm::vec2 direction = glm::vec2(0.0f);
 
     if (input->move_up.pressed) {
         direction.y += 1.0f;
@@ -143,20 +146,20 @@ GAME_ITERATE(game_iterate)
         direction.x -= 1.0f;
     }
 
-    direction = vector2_normalize(direction);
+    if (glm::length(direction) > 1e-6)
+        direction = glm::normalize(direction);
 
     // Transform direction based on camera yaw
     float cos_yaw = cosf(yaw_rad);
     float sin_yaw = sinf(yaw_rad);
 
     // Rotate the direction vector by the camera's yaw
-    Vector3 world_direction = VEC3(
-        direction.x * cos_yaw + direction.y * sin_yaw, // Change - to +
+    glm::vec3 world_direction = glm::vec3(
+        direction.x * cos_yaw + direction.y * sin_yaw,
         0.0f,
-        -direction.x * sin_yaw + direction.y * cos_yaw // Add - before direction.x
-    );
+        -direction.x * sin_yaw + direction.y * cos_yaw);
 
-    Vector3 velocity = character_get_linear_velocity(game_state->character_controller);
+    glm::vec3 velocity = character_get_linear_velocity(game_state->character_controller);
 
     float speed = 12.0f;
 
@@ -179,34 +182,32 @@ GAME_ITERATE(game_iterate)
 
     character_set_linear_velocity(game_state->character_controller, velocity);
 
-    character_update(game_state->physics_world, game_state->character_controller, dt, (Vector3) { 0, -0.5f, 0 });
+    character_update(game_state->physics_world, game_state->character_controller, dt, glm::vec3(0, -0.5f, 0));
+    update_physics_world(game_state->physics_world, dt, game_state->transient_arena);
 
-    update_physics_world(game_state->physics_world, dt, &game_state->transient_arena);
-
-    Vector3 position = character_get_position(game_state->character_controller);
-
-    // printf("%f %f %f\n", position[0], position[1], position[2]);
-    // printf("%f %f %f\n", velocity[0], velocity[1], velocity[2]);
+    glm::vec3 position = character_get_position(game_state->character_controller);
 
     // Position camera behind and above the character
-    Vector3 camera_offset = {
+    glm::vec3 camera_offset = {
         -camera_forward.x * game_state->camera_distance,
         -camera_forward.y * game_state->camera_distance,
         -camera_forward.z * game_state->camera_distance
     };
 
-    draw_list->camera.position = vector3_add(position, camera_offset);
+    draw_list->camera.position = position + camera_offset;
     draw_list->camera.target = position;
 
-    Transform character_transform = TRANSFORM_IDENTITY_INIT;
+    Transform character_transform;
     character_transform.position = position;
 
+    Transform world_transform;
+
     for (size_t i = 0; i < game_state->meshes_count - 1; i++) {
-        push_draw_mesh(draw_list, game_state->meshes[i], game_state->test_texture, TRANSFORM_IDENTITY);
+        push_draw_mesh(draw_list, game_state->meshes[i], game_state->test_texture, world_transform);
     }
 
     push_draw_mesh(draw_list, game_state->character_capsule_mesh, game_state->test_texture, character_transform);
 
     // Reset transient arena
-    arena_clear(&game_state->transient_arena);
+    game_state->transient_arena.clear();
 }
